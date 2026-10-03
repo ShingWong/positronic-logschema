@@ -79,3 +79,36 @@ def jsonl(tmp_path, records):
     p = tmp_path / "synthetic.jsonl"
     p.write_text("\n".join(json.dumps(r) for r in records), encoding="utf-8")
     return str(p)
+
+
+@pytest.fixture
+def schema_file(tmp_path):
+    """A schema that passes every predicate against `records`."""
+    good = """
+software: postfix
+identity_key: pid
+time_field: stamp
+record_layers:
+  envelope:
+    - {path: stamp, role: context, type: datetime, meaning: when}
+    - {path: pid, role: identity, type: integer, meaning: process}
+    - {path: ident, role: context, type: string, meaning: daemon}
+    - {path: file, role: context, type: string, meaning: source}
+  payload:
+    - {path: svc, role: identity, type: string, meaning: subsystem}
+    - {path: tok, role: content, type: string, meaning: the line}
+classes:
+  - {name: connect, template: "connect from <HOST>", meaning: m, normal: true}
+  - {name: disconnect, template: "disconnect from <HOST>", meaning: m, normal: true}
+  - {name: ehlo, template: "smtp cmd EHLO mx<N>", meaning: m, normal: true}
+  - {name: client, template: "client <HOST>", meaning: m, normal: true}
+  - {name: sasl, template: "warning SASL LOGIN authentication failed", meaning: m, normal: false}
+  - {name: mail_from, template: "smtp cmd MAIL FROM <EMAIL>", meaning: m, normal: true}
+  - {name: rcpt_to, template: "smtp cmd RCPT TO <EMAIL>", meaning: m, normal: true}
+  - {name: resp, template: "smtp resp to EHLO", meaning: m, normal: true}
+  - {name: queued, template: "Q <QID> from <EMAIL> size <N> nrcpt <N> queue active", meaning: m, normal: true}
+  - {name: removed, template: "Q <QID> removed", meaning: m, normal: true}
+"""
+    p = tmp_path / "schema.yaml"
+    p.write_text(good, encoding="utf-8")
+    return str(p)

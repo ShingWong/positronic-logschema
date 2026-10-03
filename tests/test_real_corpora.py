@@ -50,9 +50,42 @@ def test_mx1_finds_the_known_clock_and_structure():
     # that window. They still cluster — the file is time-ordered, so a prefix
     # holds whole sessions rather than scattering them.
     by = {tuple(c["fields"]): c for c in r["identity_candidates"]}
-    assert by[("svc",)]["verdict"] == "bucket", by[("svc",)]["evidence"]
-    assert by[("pid",)]["verdict"] == "session", by[("pid",)]["evidence"]
-    assert by[("pid",)]["mean_size"] > 2
+
+    def verdict(fields):
+        c = by.get(fields)
+        assert c is not None, (
+            f"{'+'.join(fields)} not offered among "
+            f"{[x['fields'] for x in r['identity_candidates']]}")
+        return c
+
+    assert verdict(("svc",))["verdict"] == "bucket", verdict(("svc",))["evidence"]
+    pid = verdict(("pid",))
+    assert pid["verdict"] == "session", pid["evidence"]
+    assert pid["mean_size"] > 2
+
+    # The composite is the key mx1 actually wants, and its group count is the
+    # session count measured independently earlier in the project: 24,537
+    # distinct (svc, pid) pairs at 61.1 lines each.
+    #
+    # Matched order-insensitively, because the composite generator emits keys
+    # sorted by field name and `pid+svc` is the same key as `svc+pid`. The
+    # validator does the same, so a schema author is not exposed to a spelling
+    # rule they cannot discover.
+    pair = next((c for c in r["identity_candidates"]
+                 if frozenset(c["fields"]) == frozenset({"svc", "pid"})), None)
+    assert pair is not None, (
+        "the (svc, pid) composite is not offered; mx1 sessions are identified "
+        f"by exactly this pair. got "
+        f"{[x['fields'] for x in r['identity_candidates']]}")
+    assert pair["verdict"] == "session", pair["evidence"]
+    # This test reads a 60,000-row prefix of a 1,499,352-row file, so the
+    # absolute group count is a property of the window: it covers roughly 4% of
+    # the timeline. The whole-corpus figure is 24,537, and asserting that here
+    # would be asserting that the test read the file it did not read.
+    assert pair["mean_size"] > 40, pair
+    assert pair["singletons"] / pair["groups"] < 0.5, (
+        "most (svc, pid) pairs appearing once means the key is not grouping "
+        f"sessions: {pair}")
 
     # mx1 is protocol text and templates cleanly.
     cl = r["classes"]

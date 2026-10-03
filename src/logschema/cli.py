@@ -34,11 +34,11 @@ VERBS: list[tuple[str, str, str]] = [
     ("help", "ready", "basic help, or agent-startup / agent-detail"),
     ("project init", "ready", "create a project directory and write the manifest"),
     ("inspect", "ready", "field inventory, clock, identity candidates, classes, questions"),
-    ("validate", "ready", "the six predicates; exit 0 only if all pass"),
+    ("validate", "ready", "every predicate; exit 0 only if all pass"),
     ("conformance write", "ready", "generate the negative fixtures"),
     ("conformance run", "ready", "run them; every one must be rejected"),
+    ("preview", "ready", "project records through a schema; writes nothing"),
     ("doctor", "planned", "environment and version check"),
-    ("preview", "planned", "the first N normalized events, no brain required"),
     ("draft", "agent", "candidate schema from prior knowledge (the agent writes this)"),
     ("revise", "agent", "revised candidate given a failure report (the agent writes this)"),
     ("schema", "planned", "list, show or diff the schema library"),
@@ -135,6 +135,12 @@ def _cmd_conformance(args: argparse.Namespace) -> int:
     return cmd_conformance(args)
 
 
+def _cmd_preview(args: argparse.Namespace) -> int:
+    from .preview_cmd import cmd_preview
+
+    return cmd_preview(args)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="logschema",
@@ -216,6 +222,22 @@ def build_parser() -> argparse.ArgumentParser:
     cr.add_argument("--time-field", default=None)
     cr.add_argument("--json", action="store_true")
     cr.set_defaults(fn=_cmd_conformance)
+
+    pv = sub.add_parser(
+        "preview",
+        help="project records through a schema; writes nothing",
+        description=(
+            "Show what ingestion would produce, without writing it. This is "
+            "the last check before a schema touches real data."
+        ),
+    )
+    pv.add_argument("path", help="log file the schema describes")
+    pv.add_argument("--schema", required=True, help="schema.yaml to project through")
+    pv.add_argument("-n", type=int, default=20, help="records to show (default 20)")
+    pv.add_argument("--limit", type=int, default=200_000,
+                    help="max records to read (default 200000)")
+    pv.add_argument("--json", action="store_true", help="machine-readable output")
+    pv.set_defaults(fn=_cmd_preview)
 
     # `doctor` is declared in VERBS as planned and is deliberately NOT
     # registered here. A stub that prints "not yet implemented" and exits 0

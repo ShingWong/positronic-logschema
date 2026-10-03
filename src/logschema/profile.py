@@ -443,26 +443,59 @@ def identity_candidates(
     # `bucket` fields are INCLUDED here even though they are rejected as keys in
     # their own right. A low-cardinality categorical field is exactly the
     # partition half of a composite key — `pid` alone collides across services,
-    # and (svc, pid) is the pair that identifies a Postfix session. Excluding
-    # buckets from the pool is what stopped the most useful composite we know
-    # how to build from ever being generated.
+    # and (svc, pid) is the pair that identifies a Postfix session.
+    #
+    # The size cut that used to sit here (`mean_size < 1000`) was a proxy for
+    # "not a category", and it fails on exactly the corpora that matter: on
+    # mx1 every field averages tens of thousands of events per value, so the
+    # pool came out empty and (svc, pid) — the key a schema author is most
+    # likely to reach for — was never generated. The verdict already carries
+    # the distinction, so use it instead of re-guessing it from a count.
     singles = [c for c in cands if len(c.fields) == 1
-               and c.verdict != "noise"
-               and c.mean_size < 1000 and c.placeholder_rate < 0.5]
+               and c.verdict in ("session", "entity", "bucket")
+               and c.placeholder_rate < 0.5]
     # Rank by how *selective* a field is: the closer its group count is to the
-    # record count, the closer it is to being an identifier. Ranking by
-    # mean_size put the widest categorical fields first, which is how (svc, pid)
-    # fell outside the top four.
+    # record count, the closer it is to being an identifier.
     singles.sort(key=lambda c: (-c.groups / max(1, len(records)), c.fields[0]))
-    for i, a in enumerate(singles[:4]):
-        for b in singles[:4]:
-            if a.fields[0] >= b.fields[0]:
-                continue
-            pair = (a.fields[0], b.fields[0])
-            cands.append(_measure(records, pair, time_field, "composite",
-                                  partial_coverage))
-    cands.sort(key=lambda c: (_rank(c.verdict), -c.mean_size))
-    return cands[:max_candidates]
+    # Two levels of pool size. Pairs of the most selective fields are almost
+    # always real composites; pairs reaching a little wider catch the case
+    # where a categorical field only becomes useful in combination. The
+    # quadratic is bounded — a corpus with 30 usable fields generates 435 pairs
+    # at the wide setting, and each measurement is a dict pass.
+    # Two levels of pool size, widening outward. `seen_pairs` is shared across
+    # both levels on purpose: the wide pass re-forms every pair the narrow pass
+    # already built, and without this they were appended twice. That showed up
+    # as a duplicated row in the rendered table, which is the sort of thing that
+    # trains a reader to distrust the output.
+    seen_pairs: set[tuple[str, str]] = set()
+    for width in (4, 8):
+        for a in singles[:width]:
+            for b in singles[:width]:
+                if a.fields[0] >= b.fields[0]:
+                    continue
+                pair = (a.fields[0], b.fields[0])
+                if pair in seen_pairs:
+                    continue
+                seen_pairs.add(pair)
+                cands.append(_measure(records, pair, time_field, "composite",
+                                      partial_coverage))
+    # Reserve room for the singles. Composites are the interesting output, but
+    # truncating them to a fixed count pushed every single-field candidate off
+    # the end on a wide corpus: mx1 generates 30+ pairs, so `svc` — the field
+    # whose rejection as an identity key is the whole point of measuring it —
+    # disappeared from the table. A user comparing options needs the options
+    # they are choosing between to still be there.
+    singles_out = sorted((c for c in cands if len(c.fields) == 1),
+                         key=lambda c: (_rank(c.verdict), -c.mean_size))
+    pairs_out = sorted((c for c in cands if len(c.fields) > 1),
+                       key=lambda c: (_rank(c.verdict), -c.mean_size))
+    # Every single is kept. A single field is one row and there are only a
+    # handful of them on any real corpus; truncating them was the mistake.
+    # Composites are capped instead, and by rank, so the ones shown are the
+    # ones that measure as identifiers rather than whichever happened to sort
+    # first.
+    keep_pairs = pairs_out[:max(2, max_candidates - len(singles_out))]
+    return singles_out + keep_pairs
 
 
 # Ordering for display. `undetermined` sorts with `unknown` rather than with
@@ -590,12 +623,23 @@ def _classify(c: IdentityCandidate, partial: bool = False) -> tuple[str, str]:
         # is spread across all of it.
         ratio = own / c.span_days
         clustered = ratio < 0.05
-        if clustered:
+        if clustered and c.mean_size < 1000:
             return "session", (
                 f"{c.mean_size:,.0f} events per key inside a median "
                 f"{own * 1440:,.0f} minutes — {ratio:.1%} of the corpus "
                 f"timeline, so a burst rather than a thread")
         if c.mean_size >= 50:
+            # Clustered in time is not sufficient for `session`, and volume has
+            # to be part of the conjunction. Measured on mx1: (file, svc) has
+            # 21,117 events per key and its keys are 5% of the timeline, which
+            # satisfied the clustering test and produced `session` for what is
+            # in fact one group per machine per log file — a bucket. There is
+            # no conversation with 21,000 lines in it.
+            if clustered:
+                return "bucket", (
+                    f"{c.mean_size:,.0f} events per key clustered into "
+                    f"{ratio:.1%} of the corpus timeline, but far too many per "
+                    f"key to be one conversation — a category")
             return "bucket", (
                 f"{c.mean_size:,.0f} events per key spread over "
                 f"{ratio:.0%} of the corpus timeline — a category, not a "

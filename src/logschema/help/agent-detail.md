@@ -40,7 +40,7 @@ the steps; `logschema validate` decides whether the loop is finished.
 | `logschema doctor` | no | environment and version check |
 | `logschema project init --name N --location P` | no | create the project directory and write the manifest |
 | `logschema inspect PATH` | no | detect substrate, inventory fields, mine classes, and emit **proposals and questions** |
-| `logschema validate PATH --schema S` | no | the predicates; exit 0 only if all pass |
+| `logschema validate PATH --schema S` | no | every predicate; exit 0 only if all pass |
 | `logschema preview PATH --schema S -n N` | no | the first N normalized events, no brain required |
 | `logschema conformance write PATH --schema S --out D` | no | generate the negative fixtures |
 | `logschema conformance run PATH --fixtures D` | no | run them; every one must be rejected |
@@ -140,6 +140,32 @@ rather than an error. A redacted identifier that appears as a placeholder will
 be extracted as if it were a real value, so every redacted record collapses
 onto one identity and the schema reports a single session for a whole corpus.
 Detection has to happen when the schema is proposed, not at query time.
+
+## `preview`: what comes out the other end
+
+`validate` says the schema is self-consistent with the data. `preview` shows
+what a consumer would actually receive, and it writes nothing.
+
+```
+logschema preview PATH --schema S -n 20
+```
+
+Three things it guarantees, each of which exists because the opposite reports
+wrong data confidently rather than failing:
+
+- **A redacted value is never passed through as a value.** It becomes `null`
+  with `state: redacted` and the placeholder recorded separately. `<HEX>` is
+  not an address, and a consumer that groups by a field value must not be able
+  to read one as the other.
+- **Provenance travels with every field** — `exact`, `redacted`, `absent`,
+  `empty`, or `unresolved`. A timestamp that fell back to arrival time is not
+  the same fact as one read from the record.
+- **Identity is the schema's claim, checked, not re-guessed.** `validate`
+  already decided; the projection records what the key resolved to.
+
+Note the asymmetry, which is deliberate: `subject_norm` and `body_text` carry
+the raw text with its redaction markers intact, because the surviving shape is
+what classes are mined from. Structured `fields` are nulled. Both are reported.
 
 ## When the loop cannot converge
 
