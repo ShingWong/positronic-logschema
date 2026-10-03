@@ -40,13 +40,14 @@ the steps; `logschema validate` decides whether the loop is finished.
 | `logschema doctor` | no | environment and version check |
 | `logschema project init --name N --location P` | no | create the project directory and write the manifest |
 | `logschema inspect PATH` | no | detect substrate, inventory fields, mine classes, and emit **proposals and questions** |
-| `logschema validate PATH --schema S` | no | the six predicates; exit 0 only if all pass |
+| `logschema validate PATH --schema S` | no | the predicates; exit 0 only if all pass |
 | `logschema preview PATH --schema S -n N` | no | the first N normalized events, no brain required |
-| `logschema conformance write` | no | generate the conformance test and the negative fixtures |
-| `logschema conformance run` | no | run it; the negative fixtures must fail |
+| `logschema conformance write PATH --schema S --out D` | no | generate the negative fixtures |
+| `logschema conformance run PATH --fixtures D` | no | run them; every one must be rejected |
 | `logschema draft --product P` | **yes** | a candidate schema from prior knowledge — normally you write this yourself |
 | `logschema revise --schema S --report R` | **yes** | a revised candidate given the failure report |
 | `logschema schema` | no | the library: list, show, diff |
+| `logschema preview PATH --schema S -n N` | no | see what ingestion would produce |
 
 `logschema help` prints which of these are implemented. Do not assume.
 
@@ -74,25 +75,37 @@ sharing a value are contiguous in time. A key whose groups are all singletons
 is the wrong key. A key whose groups span the whole corpus is a bucket, not an
 entity.
 
-## The six predicates
+## The predicates
 
-A schema is valid only when all six hold. `logschema validate` is the only
-thing that can report that, and it exits non-zero otherwise.
+A schema is valid only when all of these hold. `logschema validate` is the
+only thing that can report that, and it exits non-zero otherwise.
 
-1. every field declared `identity` or `content` **is present** in the data
-2. every declared class matches at least N records, and the classes cover at
-   least X% of lines
-3. the identity key produces groups larger than one with coherent internal
-   structure — all-singletons is a failure
-4. every record receives a class, or the unclassified residue is under a
-   stated fraction
-5. every record gets a resolvable timestamp, or the fraction without is under a
-   stated fraction
-6. re-running the validator produces the same verdict
+| # | predicate | fails when |
+|---|---|---|
+| 1 | `fields_present` | a declared field is not in the data |
+| 1b | `declared_fields_unmasked` | a field declared `identity` is almost entirely redaction placeholders |
+| 3 | `identity_key` | the claimed key measures as `bucket`, `noise`, or `undetermined` |
+| 2 | `classes_resolve` | a declared class corresponds to no observed shape |
+| 4 | `every_record_classed` | coverage of templatable records is under 90% |
+| 5 | `clock_resolvable` | no field parses as a timestamp, or the declared one is not the best |
+| 6 | `deterministic` | the verdict is not a pure function of schema and data |
 
-Predicate 6 is there because a schema that changes when you re-run it is a
-bug, and because results that are suspiciously stable have repeatedly turned
-out to be measurement artefacts rather than truth.
+Three of these deserve their reasoning stated:
+
+**`bucket` is rejected as an identity key.** A schema whose key is a category
+passes every field-presence check and looks entirely reasonable. It is wrong,
+and nothing but measurement catches it. `svc` with 800 events per value spread
+across 95% of the timeline denotes a service, not a thing.
+
+**A partial scan fails `identity_key` outright** rather than passing
+provisionally. A window cannot show that a key recurs; a schema validated on a
+window is a schema that is wrong on the file.
+
+**Redaction is judged per role, not per field.** A redacted `identity` field is
+fatal — every record collapses onto the placeholders. A redacted `content`
+field is fine, because the template survives redaction and that text is what
+class shapes are mined from. A real mail log is ~87% placeholders in its
+message text; failing that would make the predicate useless.
 
 ## Class dispositions
 

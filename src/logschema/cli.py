@@ -34,11 +34,11 @@ VERBS: list[tuple[str, str, str]] = [
     ("help", "ready", "basic help, or agent-startup / agent-detail"),
     ("project init", "ready", "create a project directory and write the manifest"),
     ("inspect", "ready", "field inventory, clock, identity candidates, classes, questions"),
+    ("validate", "ready", "the six predicates; exit 0 only if all pass"),
+    ("conformance write", "ready", "generate the negative fixtures"),
+    ("conformance run", "ready", "run them; every one must be rejected"),
     ("doctor", "planned", "environment and version check"),
-    ("validate", "planned", "the six predicates; exit 0 only if all pass"),
     ("preview", "planned", "the first N normalized events, no brain required"),
-    ("conformance write", "planned", "generate the test and the negative fixtures"),
-    ("conformance run", "planned", "run it; the negative fixtures must fail"),
     ("draft", "agent", "candidate schema from prior knowledge (the agent writes this)"),
     ("revise", "agent", "revised candidate given a failure report (the agent writes this)"),
     ("schema", "planned", "list, show or diff the schema library"),
@@ -123,6 +123,18 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
     return cmd_inspect(args)
 
 
+def _cmd_validate(args: argparse.Namespace) -> int:
+    from .validate_cmd import cmd_validate
+
+    return cmd_validate(args)
+
+
+def _cmd_conformance(args: argparse.Namespace) -> int:
+    from .conformance import cmd_conformance
+
+    return cmd_conformance(args)
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="logschema",
@@ -159,6 +171,51 @@ def build_parser() -> argparse.ArgumentParser:
     insp.add_argument("--json", action="store_true",
                       help="machine-readable output")
     insp.set_defaults(fn=_cmd_inspect)
+
+    val = sub.add_parser(
+        "validate",
+        help="check a schema against the data; exit 0 only if all predicates pass",
+        description=(
+            "Recompute every claim the schema makes from the data itself. "
+            "A claim is never accepted because it was asserted. Exit code is "
+            "the product: 0 validated, 1 not, 2 could not run."
+        ),
+    )
+    val.add_argument("path", help="log file the schema describes")
+    val.add_argument("--schema", required=True, help="schema.yaml to check")
+    val.add_argument("--limit", type=int, default=200_000,
+                     help="max records to read (default 200000)")
+    val.add_argument("--time-field", default=None,
+                     help="override the clock instead of measuring one")
+    val.add_argument("--iteration", type=int, default=None,
+                     help="record which loop iteration this was")
+    val.add_argument("--json", action="store_true", help="machine-readable output")
+    val.set_defaults(fn=_cmd_validate)
+
+    conf = sub.add_parser(
+        "conformance",
+        help="generate and run the negative fixtures",
+        description=(
+            "Negative fixtures: deliberately wrong schemas that MUST fail. "
+            "Without them a passing validator has not been shown to detect "
+            "anything."
+        ),
+    )
+    confsub = conf.add_subparsers(dest="subverb", required=True)
+    cw = confsub.add_parser("write", help="generate fixtures for a data file")
+    cw.add_argument("path", help="log file the schema describes")
+    cw.add_argument("--schema", required=True, help="schema.yaml to mutate")
+    cw.add_argument("--out", required=True, help="directory to write fixtures into")
+    cw.add_argument("--limit", type=int, default=200_000)
+    cw.add_argument("--time-field", default=None)
+    cw.set_defaults(fn=_cmd_conformance)
+    cr = confsub.add_parser("run", help="run the fixtures; all must fail")
+    cr.add_argument("path", help="log file the schema describes")
+    cr.add_argument("--fixtures", required=True, help="directory of fixtures")
+    cr.add_argument("--limit", type=int, default=200_000)
+    cr.add_argument("--time-field", default=None)
+    cr.add_argument("--json", action="store_true")
+    cr.set_defaults(fn=_cmd_conformance)
 
     # `doctor` is declared in VERBS as planned and is deliberately NOT
     # registered here. A stub that prints "not yet implemented" and exits 0
