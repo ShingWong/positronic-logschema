@@ -19,498 +19,459 @@ classes:
     meaning: smtpd tearing down the SMTP conversation with a remote client.
     normal: true
     retention: demote
+
   - name: smtpd_connect_from
     template: "connect from"
     meaning: smtpd accepting a new inbound SMTP connection.
     normal: true
     retention: demote
+
   - name: sasl_login_auth_failed
     template: "warning SASL LOGIN authentication failed"
     meaning: A SASL LOGIN authentication attempt was rejected.
     normal: false
     retention: keep-extended
+
   - name: lost_connection_after_auth
     template: "lost connection after AUTH from"
     meaning: The client dropped the connection right after the AUTH step.
     normal: false
     retention: keep-extended
+
   - name: qmgr_from_size_nrcpt_active
     template: "Q from size nrcpt queue active"
     meaning: The queue manager records sender, size, recipient count and active queue.
     normal: true
     retention: keep
+
   - name: qmgr_removed
     template: "Q removed"
     meaning: The queue manager removed a message from a queue.
     normal: true
     retention: keep
+
   - name: dnsbl_rank_for
     template: "DNSBL rank for"
     meaning: A DNSBL lookup reports the block-list ranking of a client address.
     normal: true
     retention: keep
+
   - name: dnsbl_timeout_ix_manitu
     template: "warning dnsblog reply timeout s for ix dnsbl manitu net"
     meaning: The ix.dnsbl.manitu.net block-list lookup timed out.
     normal: false
     retention: keep-extended
+
   - name: dnsbl_timeout_inps_de
     template: "warning dnsblog reply timeout s for dnsbl inps de"
     meaning: The dnsbl.inps.de block-list lookup timed out.
     normal: false
     retention: keep-extended
+
   - name: lost_connection_after_ehlo
     template: "lost connection after EHLO from"
     meaning: The client disconnected immediately after EHLO without sending MAIL.
     normal: false
     retention: keep-extended
+
   - name: lost_connection_after_connect
     template: "lost connection after from"
     meaning: The client vanished right after connecting, before issuing any command.
     normal: false
     retention: keep-extended
+
   - name: banned_table_collect
     template: "collect banned table tables IP RE ARRAY x ffc"
     meaning: Policy table collection reports the banned IP regular-expression arrays it loaded.
     normal: true
     retention: keep
+
   - name: antivirus_body_hash
     template: "body hash"
     meaning: The filter reports the body hash it computed for the message.
     normal: true
     retention: demote
+
   - name: clamav_start_code
     template: "run av Using clamd code n"
     meaning: amavisdav starts ClamAV and records its exit code.
     normal: true
     retention: keep
+
   - name: clamav_connect_socket
     template: "clamd to socket"
     meaning: ClamAV connects to the clamd socket.
     normal: true
     retention: demote
+
   - name: clamav_connect_socket_n
     template: "clamd n to socket"
     meaning: ClamAV connects to the clamd socket, with a numeric field the masker kept.
     normal: true
     retention: demote
+
   - name: smtpd_read_loop_eof
     template: "rw loop read got eof"
     meaning: The smtpd read loop ended at end-of-file on the client stream.
     normal: true
     retention: demote
+
   - name: smtpd_status_counters
     template: "status counters"
     meaning: smtpd periodically reports its status counters.
     normal: true
     retention: drop
+
   - name: clamav_clean_result
     template: "run av clamd CLEAN"
     meaning: The antivirus pass returned CLEAN.
     normal: true
     retention: demote
+
   - name: clamav_result_clean
     template: "run av clamd result clean"
     meaning: The antivirus pass reports the message as clean.
     normal: true
     retention: demote
+
   - name: smtp_resp_mail_pipelined
     template: "smtp resp to MAIL pip Ok"
     meaning: The pipelined response to MAIL was accepted with Ok.
     normal: true
     retention: demote
+
   - name: smtp_resp_rcpt_pipelined
     template: "smtp resp to RCPT pip Ok"
     meaning: The pipelined response to RCPT was accepted with Ok.
     normal: true
     retention: demote
+
   - name: delivery_method_recips
     template: "delivery method is recips"
     meaning: The delivery agent reports the delivery method it will use.
     normal: true
     retention: demote
+
   - name: auth_not_needed
     template: "AUTH not needed user MTA offers"
     meaning: The client announced AUTH but offered no mechanism the MTA accepts.
     normal: true
     retention: keep
+
   - name: smtp_cmd_data
     template: "smtp cmd DATA"
     meaning: The client issued the DATA command.
     normal: true
     retention: demote
+
   - name: spamassassin_parse_call
     template: "calling SA parse SA vers data as STRING REF recips ind user amavis"
     meaning: amavisdav calls SpamAssassin to parse and score the message.
     normal: true
     retention: keep
+
   - name: smtp_cmd_rcpt_to
     template: "smtp cmd RCPT TO"
     meaning: The client issued RCPT TO.
     normal: true
     retention: demote
+
   - name: smtp_connection_cache_state
     template: "smtp connection cache dt state"
     meaning: smtpd records a state change in its connection cache.
     normal: true
     retention: demote
+
   - name: qmgr_delivered_dovecot
     template: "Q to relay dovecot delay dsn status sent delivered via dovecot service"
     meaning: The queue manager logs a successful LMTP delivery to dovecot.
     normal: true
     retention: keep
+
   - name: smtp_cmd_mail_from_body_8bit
     template: "smtp cmd MAIL FROM BODY BIT"
     meaning: The client issued MAIL FROM with the 8BITMIME body parameter.
     normal: true
     retention: demote
-  - name: smtp_greeting_esmtp
-    template: "smtp greeting mx fcsllc us ESMTP dt ms"
-    meaning: smtpd sends its ESMTP greeting banner.
-    normal: true
-    retention: demote
-  - name: smtp_cmd_ehlo_local_host
-    template: "smtp cmd EHLO mx fcsllc us"
-    meaning: The client sent EHLO naming the local mail host.
-    normal: true
-    retention: demote
+
   - name: smtp_resp_ehlo_extensions
     template: "smtp resp to EHLO nSIZE nDSN"
     meaning: smtpd advertises its SIZE and DSN SMTP extensions.
     normal: true
     retention: demote
+
   - name: smtpd_new_socket_timeout
     template: "new socket using IP IP to timeout"
     meaning: smtpd creates a new socket with an idle timeout.
     normal: true
     retention: drop
+
   - name: smtp_session_new_session
     template: "smtp session setting up a new session"
     meaning: smtpd opens its session bookkeeping for a new connection.
     normal: true
     retention: demote
+
   - name: close_disconnecting
     template: "close disconnecting"
     meaning: The connection is closed as the session disconnects.
     normal: true
     retention: demote
+
   - name: master_process_request
     template: "process request fileno sock STDIN"
     meaning: The postfix master accepts a service request on a socket.
     normal: true
     retention: demote
+
   - name: smtp_cmd_quit
     template: "smtp cmd QUIT"
     meaning: The client sent QUIT to end the session.
     normal: true
     retention: drop
+
   - name: master_load_total
     template: "load total idle s busy s"
     meaning: The master process reports total, idle and busy seconds.
     normal: true
     retention: drop
+
   - name: mime_text_html_qp
     template: "p Type text html QP size SHA digest"
     meaning: A quoted-printable text/html MIME part with size and digest.
     normal: true
     retention: demote
+
   - name: mime_multipart_alternative
     template: "p Type multipart alternative"
     meaning: A MIME part declaring multipart/alternative.
     normal: true
     retention: demote
+
   - name: amavis_notify_quarantine_ccat
     template: "do notify and quar ccat Clean Clean ccat block qar mth"
     meaning: amavis reports a CLEAN category and its quarantine block.
     normal: true
     retention: keep
+
   - name: mime_text_plain_8bit
     template: "p Type text plain bit size SHA digest"
     meaning: An 8bit-encoded text/plain MIME part with size and digest.
     normal: true
     retention: demote
+
   - name: trace_esmtp
     template: "trace ESMTP"
     meaning: A verbose ESMTP protocol trace line.
     normal: true
     retention: drop
+
   - name: timeout_after_auth
     template: "timeout after AUTH from"
     meaning: The client stalled after AUTH and hit the timeout.
     normal: false
     retention: keep-extended
-  - name: sasl_plain_exchange
-    template: "wsip no no cox net PLAIN"
-    meaning: A SASL PLAIN exchange from a masked client.
-    normal: true
-    retention: drop
+
   - name: dsn_sender_credible_orig
     template: "DSN sender is credible orig SA"
     meaning: amavis reports the original envelope sender as a credible DSN sender.
     normal: true
     retention: keep
+
   - name: smtp_response_rundown
     template: "SMTP response unlink files rundown"
     meaning: The amavis smtp-response cache cleans up unlinked files.
     normal: true
     retention: demote
+
   - name: spamassassin_pass_old
     template: "PASS OLD"
     meaning: SpamAssassin marks the message with an OLD classification header.
     normal: true
     retention: keep
+
   - name: amavis_notify_quarantine
     template: "do notify and quar Clean ccat block qar mth"
     meaning: amavis reports a CLEAN notification and its quarantine block.
     normal: true
     retention: keep
+
   - name: sasl_login_failed_net
     template: "warning net SASL LOGIN authentication failed"
     meaning: A SASL LOGIN failure from a client host ending in .net.
     normal: false
     retention: keep-extended
+
   - name: sasl_login_failed_com
     template: "warning com SASL LOGIN authentication failed"
     meaning: A SASL LOGIN failure from a client host ending in .com.
     normal: false
     retention: keep-extended
+
   - name: lost_auth_net
     template: "lost connection after AUTH from net"
     meaning: Connection lost after AUTH from a client host ending in .net.
     normal: false
     retention: keep-extended
+
   - name: lost_auth_com
     template: "lost connection after AUTH from com"
     meaning: Connection lost after AUTH from a client host ending in .com.
     normal: false
     retention: keep-extended
+
   - name: mime_text_plain_ascii
     template: "p path P p L M text plain T asc"
     meaning: A text/plain MIME part with a numeric ASCII transfer encoding.
     normal: true
     retention: demote
+
   - name: mime_text_plain_qp
     template: "p Type text plain QP size SHA digest"
     meaning: A quoted-printable text/plain MIME part with size and digest.
     normal: true
     retention: demote
+
   - name: policy_bank_loaded
     template: "loaded policy bank"
     meaning: The policy service loads its bank of rules into memory.
     normal: true
     retention: keep
+
   - name: close_keeping_connection
     template: "close keeping connection"
     meaning: smtpd closes the session but keeps the cached connection.
     normal: true
     retention: keep
+
   - name: policy_cache_slow
     template: "warning psc cache update btree update average delay is ms"
     meaning: The policy cache update is slow enough to be warned about.
     normal: false
     retention: keep-extended
+
   - name: smtp_session_reuse
     template: "smtp session reuse smtp transactions so far"
     meaning: smtpd reuses a cached session and reports the transaction count.
     normal: true
     retention: demote
+
   - name: spamassassin_pass_new
     template: "PASS NEW"
     meaning: SpamAssassin marks the message with a NEW classification header.
     normal: true
     retention: keep
+
   - name: mime_text_plain_base64
     template: "p Type text plain base size SHA digest"
     meaning: A base64-encoded text/plain MIME part with size and digest.
     normal: true
     retention: demote
+
   - name: dsn_sender_credible_dkim
     template: "DSN sender is credible dkim SA"
     meaning: amavis reports the DSN sender as credible because it is DKIM signed.
     normal: true
     retention: keep
+
   - name: smtp_session_still_valid
     template: "smtp session most likely still valid short idle s"
     meaning: smtpd judges a short-idle cached session still usable.
     normal: true
     retention: demote
+
   - name: qmgr_message_id
     template: "Q message id"
     meaning: The queue manager reports the message ID.
     normal: true
     retention: keep
+
   - name: qmgr_size_nrcpt
     template: "Q size nrcpt queue active"
     meaning: The queue manager reports message size and active queue.
     normal: true
     retention: keep
+
   - name: qmgr_delivery_saved
     template: "Q to net delay dsn status sent Ok message saved"
     meaning: The queue manager records a successful delivery with a saved message.
     normal: true
     retention: keep
+
   - name: mime_text_html_ascii
     template: "p path P p L M text html T asc"
     meaning: A text/html MIME part with a numeric ASCII transfer encoding.
     normal: true
     retention: demote
+
   - name: dkim_candidate_originator
     template: "dkim candidate originators From"
     meaning: amavis lists the From header as a DKIM candidate originator.
     normal: true
     retention: keep
+
   - name: smtp_pre_response_rundown
     template: "SMTP pre response SMTP response unlink files rundown"
     meaning: Cleanup of pre-response smtp-response files.
     normal: true
     retention: demote
+
   - name: time_limit_after_ehlo
     template: "TIME LIMIT from after EHLO"
     meaning: The client hit the time limit after sending EHLO.
     normal: false
     retention: keep-extended
+
   - name: ssl_accept_error
     template: "SSL accept error from lost connection"
     meaning: The TLS accept failed and the connection was dropped.
     normal: false
     retention: keep-extended
+
   - name: time_limit_after_helo
     template: "TIME LIMIT from after HELO"
     meaning: The client hit the time limit after sending HELO.
     normal: false
     retention: keep-extended
+
   - name: mime_text_html_8bit
     template: "p Type text html bit size SHA digest"
     meaning: An 8bit-encoded text/html MIME part with size and digest.
     normal: true
     retention: demote
+
   - name: sql_snmp_rundown
     template: "sql update update snmp SMTP pre response SMTP response unlink files rundown"
     meaning: Database cleanup of old SNMP smtp-response rows.
     normal: true
     retention: demote
+
   - name: timeout_after_connect
     template: "timeout after from"
     meaning: The client connected and then timed out before sending a command.
     normal: false
     retention: keep-extended
+
   - name: sasl_plain_auth_failed
     template: "warning SASL PLAIN authentication failed"
     meaning: A SASL PLAIN authentication attempt was rejected.
     normal: false
     retention: keep-extended
+
   - name: qmgr_geopod
     template: "Q geopod ismtpd"
     meaning: A queue line naming the geopod policy recipient.
     normal: true
     retention: keep
+
   - name: mime_multipart_mixed
     template: "p Type multipart mixed"
     meaning: A MIME part declaring multipart/mixed.
     normal: true
     retention: demote
+
   - name: smtp_statistics_cache
     template: "statistics max cache size at Sep IP"
     meaning: smtpd statistics report the maximum cache size.
     normal: true
     retention: demote
-  - name: smtpd_connect_from_hinet
-    template: "connect from emome ip hinet net"
-    meaning: smtpd accepts a connection from the named hinet client.
-    normal: true
-    retention: drop
-  - name: smtpd_disconnect_from_hinet
-    template: "disconnect from emome ip hinet net"
-    meaning: smtpd drops the session with the named hinet client.
-    normal: true
-    retention: drop
-  - name: sasl_login_failed_hinet
-    template: "warning emome ip hinet net SASL LOGIN authentication failed"
-    meaning: A SASL LOGIN failure from the named hinet client.
-    normal: false
-    retention: keep-extended
-  - name: lost_auth_hinet
-    template: "lost connection after AUTH from emome ip hinet net"
-    meaning: Connection lost after AUTH from the named hinet client.
-    normal: false
-    retention: keep-extended
-  - name: sasl_login_failed_cox
-    template: "warning wsip lv lv cox net SASL LOGIN authentication failed"
-    meaning: A SASL LOGIN failure from the named cox.net client.
-    normal: false
-    retention: keep-extended
-  - name: lost_auth_cox
-    template: "lost connection after AUTH from wsip lv lv cox net"
-    meaning: Connection lost after AUTH from the named cox.net client.
-    normal: false
-    retention: keep-extended
-  - name: smtpd_connect_from_cox
-    template: "connect from wsip lv lv cox net"
-    meaning: smtpd accepts a connection from the named cox.net client.
-    normal: true
-    retention: drop
-  - name: smtpd_disconnect_from_cox
-    template: "disconnect from wsip lv lv cox net"
-    meaning: smtpd drops the session with the named cox.net client.
-    normal: true
-    retention: drop
-  - name: smtpd_connect_from_telia
-    template: "connect from tbcn telia com"
-    meaning: smtpd accepts a connection from the named telia.com client.
-    normal: true
-    retention: drop
-  - name: smtpd_disconnect_from_telia
-    template: "disconnect from tbcn telia com"
-    meaning: smtpd drops the session with the named telia.com client.
-    normal: true
-    retention: drop
-  - name: smtpd_connect_from_tpgi
-    template: "connect from tpgi com au"
-    meaning: smtpd accepts a connection from the named tpgi.com.au client.
-    normal: true
-    retention: drop
-  - name: smtpd_disconnect_from_tpgi
-    template: "disconnect from tpgi com au"
-    meaning: smtpd drops the session with the named tpgi.com.au client.
-    normal: true
-    retention: drop
-  - name: sasl_login_failed_telia
-    template: "warning tbcn telia com SASL LOGIN authentication failed"
-    meaning: A SASL LOGIN failure from the named telia.com client.
-    normal: false
-    retention: keep-extended
-  - name: lost_auth_telia
-    template: "lost connection after AUTH from tbcn telia com"
-    meaning: Connection lost after AUTH from the named telia.com client.
-    normal: false
-    retention: keep-extended
-  - name: sasl_login_failed_tpgi
-    template: "warning tpgi com au SASL LOGIN authentication failed"
-    meaning: A SASL LOGIN failure from the named tpgi.com.au client.
-    normal: false
-    retention: keep-extended
-  - name: lost_auth_tpgi
-    template: "lost connection after AUTH from tpgi com au"
-    meaning: Connection lost after AUTH from the named tpgi.com.au client.
-    normal: false
-    retention: keep-extended
-  - name: sasl_login_failed_cox_ph
-    template: "warning wsip ph ph cox net SASL LOGIN authentication failed"
-    meaning: A SASL LOGIN failure from the named cox.net client.
-    normal: false
-    retention: keep-extended
-  - name: smtpd_connect_from_cox_ph
-    template: "connect from wsip ph ph cox net"
-    meaning: smtpd accepts a connection from the named cox.net client.
-    normal: true
-    retention: drop
-  - name: smtpd_disconnect_from_cox_ph
-    template: "disconnect from wsip ph ph cox net"
-    meaning: smtpd drops the session with the named cox.net client.
-    normal: true
-    retention: drop
-  - name: lost_auth_cox_ph
-    template: "lost connection after AUTH from wsip ph ph cox net"
-    meaning: Connection lost after AUTH from the named cox.net client.
-    normal: false
-    retention: keep-extended
