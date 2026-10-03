@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "positronic-logschema"
+version = "0.1.0"
+description = "Build and validate log-ingestion schemas for memory substrates and log analyzers"
+license = "AGPL-3.0-or-later OR LicenseRef-Commercial"
+requires-python = ">=3.10"
+# Deliberately zero runtime dependencies. Two reasons, both learned the hard
+# way. (1) The validator is the component every downstream decision trusts, and
+# a second implementation of it in another language would be able to disagree
+# about whether a schema is valid without anyone noticing. (2) This tool is
+# meant to run in CI as a gate, where an install that has to resolve a
+# dependency tree is an install that fails on someone's machine.
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8", "ruff"]
+
+[project.scripts]
+logschema = "logschema.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["logschema*"]
+
+# The help documents ARE the product here. They are referenced by the agent at
+# the start of every session, so they must ship inside the package: a doc that
+# lives in the repo but not in the wheel is a doc the installed tool cannot
+# read, which is exactly the drift the packaging is meant to prevent.
+[tool.setuptools.package-data]
+logschema = ["help/*.md"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
