@@ -137,7 +137,7 @@ class Projector:
         """Map an observed shape to the declared class that covers it."""
         from .profile import mine_classes
 
-        shapes, _unt, _n = mine_classes(records, self.text_field)
+        _top, _unt, _n, shapes = mine_classes(records, self.text_field)
         index: dict[str, str] = {}
         for name, tpl, _decl in self.classes:
             ok, _n_rec, absorbed = _match_shape(tpl, dict(shapes))

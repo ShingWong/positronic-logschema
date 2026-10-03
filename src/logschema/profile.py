@@ -723,13 +723,19 @@ def mine_classes(
     text_field: str | None,
     max_classes: int = 60,
     max_len: int = 120,
-) -> tuple[list[tuple[str, int]], int, int]:
-    """Return (top shapes, untemplatable count, TOTAL distinct shapes).
+) -> tuple[list[tuple[str, int]], int, int, Counter]:
+    """Return (top shapes, untemplatable count, distinct total, ALL shapes).
 
-    The total is counted over every shape, not over the returned top N.
-    Reporting `len(top)` as the distinct count would say a 1.5M-line mail log
-    has 60 event classes, which is an artefact of the display cap being
-    mistaken for the size of the vocabulary.
+    The fourth element is the complete Counter. It used to be the third, and
+    that was a trap: reporting `len(shapes)` after truncating to `max_classes`
+    told a 1.5M-line mail log it had "5,233 distinct shapes" while holding 60.
+    Every downstream use of the number — the printed table, the residue share,
+    the coverage denominator — was then computed against an inventory a
+    fraction of the size of the real one.
+
+    `inspect` shows the top N for readability. `validate` needs all of them: a
+    declared class must be checked against every observed shape, and a coverage
+    fraction needs the whole distribution, not the head of it.
     """
     """Group records by the shape of their text with the values removed.
 
@@ -744,7 +750,7 @@ def mine_classes(
     before drawing conclusions from it.
     """
     if not text_field:
-        return [], 0, 0
+        return [], 0, 0, Counter()
     shapes: Counter = Counter()
     total = 0
     untemplatable = 0
@@ -758,7 +764,7 @@ def mine_classes(
             untemplatable += 1
         else:
             shapes[s] += 1
-    return shapes.most_common(max_classes), untemplatable, len(shapes)
+    return shapes.most_common(max_classes), untemplatable, len(shapes), shapes
 
 
 # Order matters. Bracketed forms go before bare numbers so that `[I:1.2.3.4]:25`

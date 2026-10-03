@@ -61,7 +61,8 @@ def inspect_path(path: str, limit: int = DEFAULT_LIMIT) -> dict:
     partial, _coverage_frac, coverage_why = coverage_is_partial(
         records, time_field, sub.hit_limit)
     idents = identity_candidates(records, time_field, partial_coverage=partial)
-    classes, untemplatable, n_shapes = mine_classes(records, text_field)
+    classes, untemplatable, n_shapes, _all_shapes = mine_classes(
+        records, text_field)
 
     total = len(records)
     masked_fields = [
@@ -102,6 +103,12 @@ def inspect_path(path: str, limit: int = DEFAULT_LIMIT) -> dict:
         "classes": {
             "text_field": text_field,
             "distinct": n_shapes,
+            # Full frequency list, so `validate`'s advice ("inspect them
+            # before declaring them") is actually actionable. The plain-text
+            # view shows the head; a caller working the loop needs the whole
+            # distribution.
+            "all_shapes": [{"shape": sh, "records": c} for sh, c in
+                           sorted(_all_shapes.items(), key=lambda kv: -kv[1])],
             "untemplatable_records": untemplatable,
             "untemplatable_share": (
                 round(untemplatable / (total - untemplatable + untemplatable), 4)

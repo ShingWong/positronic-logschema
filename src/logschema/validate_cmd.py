@@ -133,19 +133,45 @@ def _advice(r) -> list[str]:
                 out.append(f"    {key:<22} {c['verdict']:<10} {c['evidence']}")
         elif "not found" in r.detail:
             out.append("run `logschema inspect` for the candidates on this file")
-    if r.name == "classes_resolve" and ev.get("unmatched"):
-        for u in ev["unmatched"][:6]:
+    if r.name == "classes_resolve":
+        for u in ev.get("unmatched", [])[:6]:
             out.append(f"class {u['name']}: {u['reason']}")
             if u.get("literal"):
                 out.append(f"    literal form: {u['literal']!r}")
             out.append("    run `logschema inspect` and copy a shape it reports")
+        shadowed = [m for m in ev.get("matched", []) if m.get("shadowed_by")]
+        if shadowed:
+            out.append("")
+            out.append(f"{len(shadowed)} declared class(es) are shadowed — every "
+                       f"shape they match belongs to a more specific class:")
+            for m in shadowed[:5]:
+                out.append(f"    {m['name']} <- {', '.join(m['shadowed_by'])}")
+            out.append("    harmless, but redundant: the more specific class "
+                       "already covers them")
     if r.name == "every_record_classed":
         out.append(f"coverage {ev.get('coverage', 0):.1%}, threshold "
                    f"{ev.get('threshold', 0):.0%}")
-        out.append(f"{ev.get('residue_records', 0):,} records fall outside "
-                   f"every declared class")
-        out.append("either declare the missing classes or accept the residue "
-                   "deliberately — do not raise the threshold to hide it")
+        out.append(f"{ev.get('residue_records', 0):,} records across "
+                   f"{ev.get('residue_shapes', 0):,} shapes fall outside every "
+                   f"declared class")
+        # The split that decides the next action. A residue of a few thousand
+        # recurring shapes is missing classes. A residue of thousands of shapes
+        # seen exactly once is a vocabulary with a long tail, and the answer is
+        # a different content field or accepting the tail — not 3,000 more
+        # hand-written classes.
+        once = ev.get("residue_shapes_seen_once", 0)
+        shapes = ev.get("residue_shapes", 0) or 1
+        if once / shapes > 0.5:
+            out.append(f"{once:,} of those shapes occur exactly once, so this "
+                       f"is a long tail rather than missing classes")
+            out.append("inspect them before declaring them: `logschema "
+                       "inspect --json` carries the residue shapes")
+        else:
+            out.append(f"only {once:,} occur exactly once, so these are "
+                       f"recurring classes the schema has not named")
+            out.append("add them from the shapes `logschema inspect` reports")
+        for t in ev.get("residue_top_shapes", [])[:5]:
+            out.append(f"    {t['records']:>7,}  {t['shape'][:56]}")
     if r.name == "clock_resolvable":
         if ev.get("measured_best"):
             out.append(f"declared {ev.get('declared')}, but the data's best "

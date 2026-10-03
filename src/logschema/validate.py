@@ -159,11 +159,61 @@ def identity_field(schema: dict) -> str | None:
 # ---------------------------------------------------------------- predicates
 
 
+class Measurement:
+    """The facts about a data file that do not depend on any schema.
+
+    Field profiles, the event clock, identity candidates, class shapes. Every
+    one of these is a function of the records alone, and every one of them is
+    expensive: identity measurement is ~35 passes over the file (each field,
+    plus each composite pair), and class mining walks the whole corpus.
+
+    So validating six negative fixtures against a 1.5M-line log must not
+    re-derive them six times. `conformance run` builds one and passes it in.
+    Not an optimisation — without it the command does not finish.
+    """
+
+    def __init__(self, records: list[dict]) -> None:
+        self.records = records
+        self.profiles = profile_fields(records)
+        self._clock: list | None = None
+        self._identity: dict = {}
+        self._classes: dict = {}
+
+    def bind(self, time_field: str | None) -> None:
+        self.time_field = time_field
+
+    @property
+    def clock(self) -> list:
+        if self._clock is None:
+            self._clock = find_time_field(self.records)
+        return self._clock
+
+    def identity(self, time_field: str | None) -> list:
+        if time_field not in self._identity:
+            self._identity[time_field] = identity_candidates(
+                self.records, time_field)
+        return self._identity[time_field]
+
+    def classes(self, text_field: str | None):
+        if text_field not in self._classes:
+            self._classes[text_field] = mine_classes(self.records, text_field)
+        return self._classes[text_field]
+
+
 def validate(schema: dict, records: list[dict], *, hit_limit: bool = False,
              time_hint: str | None = None, path: str = "<data>",
              schema_path: str = "<schema>", iteration: int | None = None,
+             cache: Measurement | None = None,
              ) -> ValidationReport:
+    """Check every claim the schema makes, recomputed from the data.
+
+    `cache` is an optional shared `Measurement`. Passing one in is not an
+    optimisation detail: identity measurement is ~35 passes over the records,
+    so six fixtures against a 1.5M-line file takes minutes without it and
+    seconds with it. The facts belong to the data, not to the schema under test.
+    """
     results: list[PredicateResult] = []
+    m = cache if cache is not None else Measurement(records)
     partial, _f, cov_why = coverage_is_partial(records, time_hint, hit_limit)
     coverage = {
         "records": len(records),
@@ -171,7 +221,7 @@ def validate(schema: dict, records: list[dict], *, hit_limit: bool = False,
         "explanation": cov_why,
     }
 
-    profs = profile_fields(records)
+    profs = m.profiles
     all_observed: set[str] = set()
     for r in records:
         all_observed |= set(r)
@@ -217,13 +267,13 @@ def validate(schema: dict, records: list[dict], *, hit_limit: bool = False,
     ))
 
     # ---- 2/3. the identity key -------------------------------------------
-    results.append(_check_identity(schema, records, time_hint, partial))
+    results.append(_check_identity(schema, records, time_hint, partial, m))
 
     # ---- 2/4. classes ----------------------------------------------------
-    results.extend(_check_classes(schema, records, partial))
+    results.extend(_check_classes(schema, records, partial, m))
 
     # ---- 5. the clock ----------------------------------------------------
-    results.append(_check_clock(schema, records, time_hint))
+    results.append(_check_clock(schema, records, time_hint, m))
 
     # ---- 6. determinism --------------------------------------------------
     results.append(PredicateResult(
@@ -240,7 +290,7 @@ def validate(schema: dict, records: list[dict], *, hit_limit: bool = False,
 
 
 def _check_identity(schema: dict, records: list[dict], time_field: str | None,
-                    partial: bool) -> PredicateResult:
+                    partial: bool, m: Measurement) -> PredicateResult:
     claimed = identity_field(schema)
     if not claimed:
         return PredicateResult(
@@ -263,7 +313,7 @@ def _check_identity(schema: dict, records: list[dict], time_field: str | None,
             claimed=claimed,
         )
 
-    cands = identity_candidates(records, time_field)
+    cands = m.identity(time_field)
     key = frozenset(claimed.split("+"))
     # Order-insensitive. A composite key names the same fields whichever way
     # round they are written, so `svc+pid` and `pid+svc` are the same claim and
@@ -301,7 +351,8 @@ def _check_identity(schema: dict, records: list[dict], time_field: str | None,
     )
 
 
-def _check_classes(schema: dict, records: list[dict], partial: bool) -> list[PredicateResult]:
+def _check_classes(schema: dict, records: list[dict], partial: bool,
+                   m: Measurement) -> list[PredicateResult]:
     out: list[PredicateResult] = []
     classes = declared_classes(schema)
     if not classes:
@@ -327,26 +378,69 @@ def _check_classes(schema: dict, records: list[dict], partial: bool) -> list[Pre
         ))
         return out
 
-    _shapes, untemplatable, n_shapes = mine_classes(records, text_field)
-    seen = dict(_shapes)
-    matched, unmatched = [], []
+    _top, untemplatable, n_shapes, all_shapes = m.classes(text_field)
+    seen = dict(all_shapes)
+    matched, unmatched, claims = [], [], []
     for c in classes:
         tpl = c.get("template")
         if not tpl:
             unmatched.append({"name": c.get("name"), "reason": "no template"})
             continue
-        ok, n, absorbed = _match_shape(tpl, seen)
+        ok, _n, absorbed = _match_shape(tpl, seen)
         if ok:
-            matched.append({"name": c.get("name"), "records": n,
-                            "absorbed_shapes": absorbed})
+            claims.append({"name": c.get("name"), "template": tpl,
+                           "specificity": _specificity(tpl),
+                           "shapes": absorbed,
+                           "records": sum(seen[s] for s in absorbed)})
         else:
             unmatched.append({"name": c.get("name"), "template": tpl,
                               "literal": _demask(tpl),
                               "reason": "matches no observed shape"})
 
+    # Assign each observed shape to exactly ONE declared class.
+    #
+    # Containment is directional, and two declared classes can both contain the
+    # same shape — `Q id` is a subsequence of `Q id Q`. Crediting each with the
+    # shape's records made coverage come out at 114.3% on mx1, which is not a
+    # rounding artefact: it is a schema claiming the same record twice, and it
+    # would silently inflate the number that decides whether the schema is
+    # complete. Most specific wins, ties broken by declaration order so the
+    # outcome stays deterministic.
+    owner: dict[str, dict] = {}
+    for claim in sorted(claims, key=lambda c: -c["specificity"]):
+        for sh in claim["shapes"]:
+            if sh not in owner:
+                owner[sh] = claim
+    for claim in claims:
+        claim["records"] = sum(seen[sh] for sh in claim["shapes"]
+                               if owner.get(sh) is claim)
+        claim["contested_with"] = sorted(
+            {owner[sh]["name"] for sh in claim["shapes"] if sh in owner}
+            - {claim["name"]})
+        if claim["records"]:
+            matched.append({"name": claim["name"],
+                            "records": claim["records"],
+                            "specificity": claim["specificity"],
+                            "contested_with": claim["contested_with"]})
+        else:
+            # Every shape it claimed belongs to a more specific class. Not a
+            # failure — the class is redundant, and redundancy is worth saying.
+            matched.append({"name": claim["name"], "records": 0,
+                            "specificity": claim["specificity"],
+                            "shadowed_by": claim["contested_with"]})
+    claimed_shapes = set(owner)
+
     covered = sum(m["records"] for m in matched)
     total = len(records) - untemplatable
     coverage_frac = covered / total if total else 0.0
+    # The residue, broken down. A single coverage number cannot distinguish
+    # "the schema missed the tail of a long-shaped vocabulary" from "the schema
+    # missed the bulk of a simple one", and the two need different next
+    # actions: more classes, versus a different content field.
+    residue = [(sh, c) for sh, c in seen.items() if sh not in claimed_shapes]
+    residue.sort(key=lambda kv: -kv[1])
+    n_residue = len(residue)
+    singleton_shapes = sum(1 for _sh, c in residue if c == 1)
     # Predicate 2 asks only "does every class I declared correspond to
     # something real". Coverage is predicate 4's question. Conflating them
     # meant a schema with correct-but-incomplete classes failed both, and
@@ -368,6 +462,10 @@ def _check_classes(schema: dict, records: list[dict], partial: bool) -> list[Pre
         {"coverage": round(coverage_frac, 4),
          "threshold": MIN_CLASS_COVERAGE,
          "residue_records": total - covered,
+         "residue_shapes": n_residue,
+         "residue_shapes_seen_once": singleton_shapes,
+         "residue_top_shapes": [{"shape": sh, "records": c}
+                                for sh, c in residue[:8]],
          "untemplatable_records": untemplatable,
          "residue_share_of_all": round((total - covered) / len(records), 4)
          if records else 0.0},
@@ -420,6 +518,12 @@ def _demask(template: str) -> str:
     return " ".join(words)
 
 
+def _specificity(template: str) -> int:
+    """How many literal words a template pins down. Higher wins a contested
+    shape, so `Q id Q` (3) beats `Q id` (2) for the shape `Q id Q`."""
+    return len(_demask(template).split())
+
+
 def _match_shape(template: str, shapes: dict[str, int]) -> tuple[bool, int, list[str]]:
     """Does a declared template correspond to an observed shape?
 
@@ -452,8 +556,8 @@ def _match_shape(template: str, shapes: dict[str, int]) -> tuple[bool, int, list
 
 
 def _check_clock(schema: dict, records: list[dict],
-                 time_hint: str | None) -> PredicateResult:
-    cands = find_time_field(records)
+                 time_hint: str | None, m: Measurement) -> PredicateResult:
+    cands = m.clock
     best = cands[0].field if cands else None
     declared = schema.get("time_field") or time_hint
     if not cands:

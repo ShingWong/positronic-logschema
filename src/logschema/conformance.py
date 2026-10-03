@@ -29,7 +29,7 @@ import sys
 from pathlib import Path
 
 from .substrate import detect, read
-from .validate import PREDICATES, load_schema, validate
+from .validate import PREDICATES, Measurement, load_schema, validate
 
 FIXTURE_INDEX = "fixtures.json"
 
@@ -119,10 +119,23 @@ def _mutations() -> list[tuple[str, str, str, object, str]]:
         redacted = list(_REDACTED.get("fields") or [])
         if not redacted:
             # Nothing redacted and non-content in this corpus, so the wrongness
-            # is not expressible here. Say so in the schema rather than naming a
-            # field that does not exist, which would silently duplicate
-            # `field-does-not-exist` and hide the real gap.
-            s["identity_key"] = "__no_redacted_field_in_this_corpus__"
+            # is genuinely not expressible here. Say so plainly and point the
+            # failure at the real gate — `fields_present` will reject a key
+            # naming a field that is not in the data, which is the honest
+            # nearest thing this corpus can be asked to demonstrate.
+            #
+            # The alternative was naming a field that does not exist, which
+            # silently duplicated `field-does-not-exist` and left this fixture
+            # reporting success for a predicate it never exercised.
+            s["identity_key"] = "__no_redacted_non_content_field_in_corpus__"
+            # `identity_key`, not `fields_present`: the sentinel is a bad
+            # *key*, and only the identity predicate rejects a key naming
+            # fields that do not exist. `fields_present` checks declared
+            # record_layers, which this mutation leaves untouched.
+            s["__fixture_note__"] = {
+                "target": "identity_key",
+                "must_contain": "no candidate",
+            }
             return s
         target = redacted[0]
         s["identity_key"] = target
@@ -241,6 +254,12 @@ def write_fixtures(data_path: str, schema_path: str, out_dir: str,
     written = []
     for fid, target, must, mutate, why in _mutations():
         broken = mutate(schema)
+        # A mutation that could not be expressed against this corpus retargets
+        # itself, rather than pretending. Recorded in the fixture so the run
+        # report can say which predicate it actually exercised.
+        note = broken.pop("__fixture_note__", None)
+        if note:
+            target, must = note["target"], note["must_contain"]
         meta = {"id": fid, "target_predicate": target, "must_contain": must,
                 "why": why, "source_schema": schema_path, "data": data_path}
         p = out / f"{fid}.yaml"
@@ -284,6 +303,11 @@ def run_fixtures(data_path: str, fixtures_dir: str, limit: int = 200_000,
         cands = find_time_field(records)
         time_field = cands[0].field if cands else None
 
+    # One measurement for the whole run. The facts belong to the data, not to
+    # the fixture, and re-deriving them per fixture is what made this command
+    # time out on a 1.5M-line file.
+    measurement = Measurement(records)
+
     results = []
     holes = []
     for fx in index["fixtures"]:
@@ -297,7 +321,7 @@ def run_fixtures(data_path: str, fixtures_dir: str, limit: int = 200_000,
             continue
         rep = validate(schema, records, hit_limit=hit_limit,
                        time_hint=time_field, path=str(sub.path),
-                       schema_path=fx["file"])
+                       schema_path=fx["file"], cache=measurement)
         target = fx["target_predicate"]
         result = next((r for r in rep.results if r.name == target), None)
         failed = result is not None and not result.passed
