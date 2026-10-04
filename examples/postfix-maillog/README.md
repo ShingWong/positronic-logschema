@@ -37,11 +37,11 @@ $ logschema conformance run maillog.jsonl --fixtures ./fixtures
 
 **It is deliberately generic, and coverage is correspondingly tight.** The
 draft had 101 classes; 23 of them existed only because a client hostname
-survived masking (`connect from emome ip hinet net` versus `connect from`).
-Those are the same event, so they were redundant with the generic shape, and
-removing them cost 2.0 points of coverage — 92.2% to **90.2% against a 90%
-threshold**. That is 0.2 points of headroom, and it will not survive a corpus
-with a different shape mix.
+survived masking — the same `connect from` line, written once with the host
+intact and once with it masked. Those are the same event, so they were redundant
+with the generic shape, and removing them cost 2.0 points of coverage — 92.2% to
+**90.2% against a 90% threshold**. That is 0.2 points of headroom, and it will
+not survive a corpus with a different shape mix.
 
 If you have unmasked logs, add the specific forms back. If you do not, either
 accept the residue deliberately or raise the threshold knowing you are choosing
