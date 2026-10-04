@@ -37,7 +37,7 @@ def build_records(n_sessions=40, lines_per=40, start=1_700_000_000):
 
 def _iso(t: int) -> str:
     import datetime
-    return (datetime.datetime.fromtimestamp(t, datetime.timezone.utc)
+    return (datetime.datetime.fromtimestamp(t, datetime.UTC)
             .strftime("%Y-%m-%dT%H:%M:%S"))
 
 

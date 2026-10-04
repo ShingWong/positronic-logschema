@@ -28,7 +28,7 @@ import statistics
 from collections import Counter, defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 # Placeholders a redaction pass leaves behind. A schema that treats one of
 # these as an identifier silently collapses every redacted record onto a single
@@ -193,13 +193,13 @@ def _parse_epoch(v) -> datetime | None:
         return None
     a = abs(f)
     if EPOCH_LO <= a <= EPOCH_HI:            # seconds
-        return datetime.fromtimestamp(f, tz=timezone.utc)
+        return datetime.fromtimestamp(f, tz=UTC)
     if 1e11 <= a <= 4e12:                     # milliseconds
-        return datetime.fromtimestamp(f / 1000.0, tz=timezone.utc)
+        return datetime.fromtimestamp(f / 1000.0, tz=UTC)
     if 1e14 <= a <= 4e15:                     # microseconds
-        return datetime.fromtimestamp(f / 1e6, tz=timezone.utc)
+        return datetime.fromtimestamp(f / 1e6, tz=UTC)
     if 1e17 <= a <= 4e18:                     # nanoseconds
-        return datetime.fromtimestamp(f / 1e9, tz=timezone.utc)
+        return datetime.fromtimestamp(f / 1e9, tz=UTC)
     return None
 
 
@@ -216,7 +216,7 @@ def _parse_iso(v) -> datetime | None:
         dt = datetime.fromisoformat(s)
     except ValueError:
         return None
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
 
 
 def _parse_slashed(v) -> datetime | None:
@@ -228,7 +228,7 @@ def _parse_slashed(v) -> datetime | None:
         dt = datetime.fromisoformat(s)
     except ValueError:
         return None
-    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
 
 
 def _parse_dmy(v) -> datetime | None:
@@ -237,7 +237,7 @@ def _parse_dmy(v) -> datetime | None:
     for fmt in ("%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M",
                 "%d-%m-%Y %H:%M:%S", "%d.%m.%Y %H:%M:%S"):
         try:
-            return datetime.strptime(s[:19], fmt).replace(tzinfo=timezone.utc)
+            return datetime.strptime(s[:19], fmt).replace(tzinfo=UTC)
         except ValueError:
             continue
     return None
@@ -252,7 +252,7 @@ def _parse_us(v) -> datetime | None:
             # %z formats come back aware; the rest are declared UTC rather
             # than left naive, so every comparison downstream has a tz.
             dt = datetime.strptime(s, fmt)  # noqa: DTZ007 - tz added below
-            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+            return dt if dt.tzinfo else dt.replace(tzinfo=UTC)
         except ValueError:
             continue
     return None

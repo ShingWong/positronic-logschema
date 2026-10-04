@@ -33,10 +33,8 @@ def _resolve(words: list[str]) -> bool:
     which is a placeholder rather than a verb. `conformance write` resolves as
     the two-word verb. `frobnicate` resolves to nothing, which is the failure.
     """
-    for i in range(len(words), 0, -1):
-        if " ".join(words[:i]) in REGISTRY:
-            return True
-    return False
+    return any(" ".join(words[:i]) in REGISTRY
+               for i in range(len(words), 0, -1))
 
 
 def _commands(doc: str) -> list[list[str]]:

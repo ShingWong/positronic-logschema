@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from .profile import (
     coverage_is_partial,
@@ -119,15 +120,14 @@ def load_schema(path: str) -> dict:
     """
     from .miniyaml import parse_yaml
 
-    with open(path, encoding="utf-8") as fh:
-        data = parse_yaml(fh.read())
+    data = parse_yaml(Path(path).read_text(encoding="utf-8"))
     if not isinstance(data, dict):
         # ValueError on purpose, and `noqa: TRY004`. `cmd_validate` catches
         # ValueError alongside the OSError from `open` and reports "cannot read
         # schema", which is the right response to a hand-edited file with the
         # wrong top-level shape. A TypeError would escape as a traceback, which
         # is the wrong response to a user's typo.
-        raise ValueError(  # noqa: TRY004
+        raise ValueError(
             f"{path}: schema must be a mapping at the top level, got "
             f"{type(data).__name__}")
     return data

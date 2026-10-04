@@ -9,7 +9,7 @@ Skipped when a corpus is absent, so the suite still runs on a fresh checkout.
 
 from __future__ import annotations
 
-import os
+from pathlib import Path
 
 import pytest
 
@@ -19,7 +19,7 @@ CORPORA = "/tmp/opencode"
 
 
 def have(name: str) -> bool:
-    return os.path.exists(os.path.join(CORPORA, name))
+    return (Path(CORPORA) / name).exists()
 
 
 pytestmark = pytest.mark.skipif(
@@ -149,7 +149,7 @@ def test_a_prefixed_scan_refuses_to_call_a_real_entity_noise():
     whole = inspect_path(f"{CORPORA}/pvl_merged.jsonl", limit=400_000)
 
     assert part["coverage"]["is_prefix_of_timeline"] is True
-    assert "indicative only" == part["coverage"]["identity_verdicts_are"]
+    assert part["coverage"]["identity_verdicts_are"] == "indicative only"
     assert part["coverage"]["explanation"]
 
     p_who = next(c for c in part["identity_candidates"] if c["fields"] == ["who"])

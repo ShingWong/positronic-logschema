@@ -18,12 +18,15 @@ sample that gets over-read.
 
 from __future__ import annotations
 
+import contextlib
 import csv
 import io
 import json
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from . import syslogfmt
 
 # Fields a plain-text reader synthesises, so downstream code has one shape to
 # handle rather than a special case per substrate.
@@ -34,7 +37,7 @@ MESSAGE = "message"
 class Substrate:
     """How to read a file, and what it turned out to be."""
 
-    kind: str                     # jsonl | json | delimited | text
+    kind: str                     # jsonl | json | delimited | text | syslog
     path: Path
     delimiter: str | None = None
     fields: list[str] = field(default_factory=list)
@@ -42,6 +45,10 @@ class Substrate:
     available: int | None = None  # total records, when cheaply knowable
     hit_limit: bool = False       # stopped early, so there IS more in the file
     note: str = ""
+    # Populated for the syslog substrate only. A BSD syslog file carries no
+    # year, so every timestamp it yields is a reconstruction; `facts` is how
+    # that reconstruction is disclosed rather than implied.
+    facts: syslogfmt.SyslogFacts | None = None
 
     @property
     def truncated(self) -> bool:
@@ -60,7 +67,7 @@ class Substrate:
                     and self.available > self.read)
 
     def as_dict(self) -> dict:
-        return {
+        out = {
             "kind": self.kind,
             "delimiter": self.delimiter,
             "fields": list(self.fields),
@@ -69,6 +76,9 @@ class Substrate:
             "truncated": self.truncated,
             "note": self.note,
         }
+        if self.facts is not None:
+            out["syslog"] = self.facts.as_dict()
+        return out
 
 
 def detect(path: str | Path) -> Substrate:
@@ -105,12 +115,29 @@ def detect(path: str | Path) -> Substrate:
     if suffix in (".csv", ".tsv", ".psv"):
         delim = "\t" if suffix == ".tsv" else ("|" if suffix == ".psv" else ",")
         head_text = head.decode("utf-8", errors="replace")
-        try:
-            delim = csv.Sniffer().sniff(head_text[:8192], delimiters=",\t|;").delimiter
-        except csv.Error:
-            pass
+        with contextlib.suppress(csv.Error):
+            delim = csv.Sniffer().sniff(head_text[:8192],
+                                        delimiters=",\t|;").delimiter
         hdr = next(csv.reader(io.StringIO(head_text), delimiter=delim), [])
         return Substrate("delimited", p, delimiter=delim, fields=[h.strip() for h in hdr])
+
+    # Syslog has no reliable extension. `maillog` has none, and a `syslog.txt`
+    # may be anything, so the bytes decide. Tried before the delimited and text
+    # fallbacks because a syslog file falling through to `text` yields one
+    # `message` field and no clock at all -- a schema cannot be written against
+    # that, and the failure is silent.
+    if suffix in (".log", ".txt", ".out", "") or suffix not in {
+            ".jsonl", ".ndjson", ".json", ".csv", ".tsv", ".psv"}:
+        dialect = syslogfmt.sniff(head)
+        if dialect:
+            facts = syslogfmt.prepare(p, dialect)
+            return Substrate(
+                "syslog", p, fields=[syslogfmt.STAMP, syslogfmt.HOST,
+                                     syslogfmt.IDENT, syslogfmt.PID,
+                                     syslogfmt.MESSAGE],
+                note=f"syslog {dialect}; the year is not in the file and is "
+                     f"reconstructed from {facts.year_source}",
+                facts=facts)
 
     # No usable extension, or an unknown one. Sniff the content.
     first = head.decode("utf-8", errors="replace").lstrip()
@@ -206,6 +233,15 @@ def _json_array_length(head: bytes, p: Path) -> int | None:
 
 def read(sub: Substrate, limit: int = 200_000) -> Iterator[dict]:
     """Yield up to `limit` records. Non-dict rows are skipped, not coerced."""
+    if sub.kind == "syslog":
+        facts = sub.facts or syslogfmt.prepare(sub.path, "bsd")
+        sub.facts = facts
+        n = 0
+        for rec in syslogfmt.read(sub.path, limit, facts):
+            n += 1
+            yield rec
+        sub.read = n
+        return
     if sub.kind == "jsonl":
         n = 0
         hit_limit = False

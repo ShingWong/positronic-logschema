@@ -1,0 +1,56 @@
+# =====================================================================
+# Project Positronic
+# Copyright (C) 2026 Shing Wong. All Rights Reserved.
+# =====================================================================
+
+# Lint policy is stated here rather than inherited, because until this file
+# existed the rule set came from outside the repository. A public checkout
+# whose `ruff check` result depends on an unstated machine-level default is a
+# checkout that fails CI for reasons nobody in the project can reproduce.
+
+line-length = 90
+target-version = "py311"
+
+[lint]
+select = [
+  "E", "W",    # pycodestyle
+  "F",         # pyflakes
+  "I",         # import order
+  "B",         # bugbear
+  "C4",        # comprehensions
+  "UP",        # pyupgrade
+  "SIM",       # simplify
+  "RUF",       # ruff-specific
+  "PTH",       # pathlib over os.path
+  "DTZ",       # naive datetimes
+]
+ignore = [
+  # Tests assert on prose and build fixtures inline; wrapping them to fit is
+  # noise, and a test that reads as one thought is worth more than a line limit.
+  "E501",
+  # Several helpers here keep a parameter for interface symmetry -- a
+  # predicate taking the full argument set whether or not it needs every field,
+  # and a test double matching the signature of what it stands in for. Dropping
+  # the argument would make the call sites lie about what the function needs.
+  "ARG001", "ARG002",
+  # This is a CLI. Printing to stdout IS the product -- every verb's output is
+  # the interface, and `--json` exists alongside it rather than instead of it.
+  # A linter that wants prints routed through logging has not met a tool whose
+  # deliverable is the text on the terminal.
+  "T20",
+]
+
+[lint.per-file-ignores]
+# A syslog timestamp is naive on purpose. BSD syslog carries no UTC offset at
+# all -- `Sep 27 03:27:45` is local wall time and nothing more -- so attaching
+# a timezone here would mean inventing a fact the file does not contain. The
+# whole purpose of this module is to disclose what had to be assumed (the year)
+# rather than fabricate it quietly, and a fabricated offset is the same failure
+# wearing a different hat.
+"src/logschema/syslogfmt.py" = ["DTZ001", "DTZ006"]
+# Test doubles must carry the signature of the thing they stand in for even
+# when they ignore an argument, so ARG001 is noise there rather than a smell.
+"tests/*" = ["ARG001", "DTZ001"]
+
+[lint.flake8-tidy-imports]
+ban-relative-imports = "parents"
