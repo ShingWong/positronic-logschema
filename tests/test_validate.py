@@ -46,42 +46,52 @@ record_layers:
 classes:
   - name: connect
     template: "connect from <HOST>"
+    retention: keep
     meaning: "a client opened a connection"
     normal: true
   - name: disconnect
     template: "disconnect from <HOST>"
+    retention: keep
     meaning: "the connection ended"
     normal: true
   - name: ehlo
     template: "smtp cmd EHLO mx<N>"
+    retention: keep
     meaning: "the client announced itself"
     normal: true
   - name: client_identified
     template: "client HOST I HEX"
+    retention: keep
     meaning: "smtpd resolved the peer"
     normal: true
   - name: sasl_failure
     template: "warning HOST I HEX SASL LOGIN authentication failed EMAIL"
+    retention: keep-extended
     meaning: "authentication did not complete"
     normal: false
   - name: queue_active
     template: "Q HEX from EMAIL size N nrcpt N queue active"
+    retention: keep
     meaning: "the queue manager took a message"
     normal: true
   - name: queue_removed
     template: "Q HEX removed"
+    retention: keep
     meaning: "the message left the queue"
     normal: true
   - name: mail_from
     template: "smtp cmd MAIL FROM EMAIL"
+    retention: keep
     meaning: "the envelope sender was accepted"
     normal: true
   - name: rcpt_to
     template: "smtp cmd RCPT TO EMAIL"
+    retention: keep
     meaning: "a recipient was accepted"
     normal: true
   - name: resp_to_ehlo
     template: "smtp resp to EHLO"
+    retention: keep
     meaning: "the server replied to EHLO"
     normal: true
 """
@@ -223,7 +233,7 @@ record_layers:
   payload:
     - {path: tok, role: content, type: string, meaning: m}
 classes:
-  - {name: one, template: "connect from HOST", meaning: m, normal: true}
+  - {name: one, template: "connect from HOST", meaning: m, normal: true, retention: keep}
 """
     rep = check(schema, records, time_hint="stamp")
     assert by_name(rep, "classes_resolve").passed, \
@@ -530,3 +540,33 @@ def test_single_character_code_matches_its_shape():
     r = next(r for r in rep.results if r.name == "classes_resolve")
     assert r.passed
     assert r.evidence["matched"][0]["records"] == 1
+
+
+# ------------------------------------------------------- retention values
+
+def test_unknown_retention_fails_classes_resolve():
+    from logschema.validate import validate
+    s = _schema_with_message_key()
+    s["classes"] = [{"name": "c", "template": "hello",
+                     "meaning": "m", "normal": True,
+                     "retention": "keep-forever"}]
+    recs = [{"pid": "1", "stamp": "2026-01-01T00:00:00",
+             "message": "hello world"}]
+    rep = validate(s, recs)
+    r = next(r for r in rep.results if r.name == "classes_resolve")
+    assert not r.passed and r.fatal
+    assert "no usable retention" in r.detail
+
+
+def test_missing_retention_fails_like_typo():
+    """Missing and misspelled are the same failure: both leave the engine
+    guessing. A quiet default here would promote every typo to policy."""
+    from logschema.validate import validate
+    s = _schema_with_message_key()
+    s["classes"] = [{"name": "c", "template": "hello",
+                     "meaning": "m", "normal": True}]
+    recs = [{"pid": "1", "stamp": "2026-01-01T00:00:00",
+             "message": "hello world"}]
+    rep = validate(s, recs)
+    r = next(r for r in rep.results if r.name == "classes_resolve")
+    assert not r.passed

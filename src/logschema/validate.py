@@ -46,6 +46,8 @@ from .profile import (
 MIN_RECORDS_PER_CLASS = 1
 MIN_CLASS_COVERAGE = 0.90
 
+ALLOWED_RETENTION = ("keep", "keep-extended", "demote", "drop")
+
 PREDICATES = (
     ("fields_present", "every declared identity/content field exists in the data"),
     ("classes_resolve", "every declared class matches records and covers the corpus"),
@@ -386,6 +388,26 @@ def _check_classes(schema: dict, records: list[dict], partial: bool,
         m.classes(text_field)
     seen = dict(all_shapes)
     matched, unmatched, claims = [], [], []
+    bad_retention = [
+        {"name": c.get("name"), "retention": c.get("retention")}
+        for c in classes
+        if c.get("retention") not in ALLOWED_RETENTION
+    ]
+    # Retention is load-bearing downstream: the engine maps keep-extended to
+    # long_term strength and drop to skipping ingest entirely. A typo here
+    # ("keep-extened") must not silently become the domain default -- an
+    # unknown value and a missing value are the same failure, because both
+    # leave the engine guessing what the author meant.
+    if bad_retention:
+        out.append(PredicateResult(
+            "classes_resolve", False,
+            f"{len(bad_retention)} of {len(classes)} declared classes have "
+            f"no usable retention",
+            {"bad_retention": bad_retention,
+             "allowed": list(ALLOWED_RETENTION)},
+            fatal=True,
+        ))
+        return out
     for c in classes:
         tpl = c.get("template")
         if tpl is None:

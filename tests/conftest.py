@@ -98,16 +98,16 @@ record_layers:
     - {path: svc, role: identity, type: string, meaning: subsystem}
     - {path: tok, role: content, type: string, meaning: the line}
 classes:
-  - {name: connect, template: "connect from <HOST>", meaning: m, normal: true}
-  - {name: disconnect, template: "disconnect from <HOST>", meaning: m, normal: true}
-  - {name: ehlo, template: "smtp cmd EHLO mx<N>", meaning: m, normal: true}
-  - {name: client, template: "client <HOST>", meaning: m, normal: true}
-  - {name: sasl, template: "warning SASL LOGIN authentication failed", meaning: m, normal: false}
-  - {name: mail_from, template: "smtp cmd MAIL FROM <EMAIL>", meaning: m, normal: true}
-  - {name: rcpt_to, template: "smtp cmd RCPT TO <EMAIL>", meaning: m, normal: true}
-  - {name: resp, template: "smtp resp to EHLO", meaning: m, normal: true}
-  - {name: queued, template: "Q <QID> from <EMAIL> size <N> nrcpt <N> queue active", meaning: m, normal: true}
-  - {name: removed, template: "Q <QID> removed", meaning: m, normal: true}
+  - {name: connect, template: "connect from <HOST>", meaning: m, normal: true, retention: keep}
+  - {name: disconnect, template: "disconnect from <HOST>", meaning: m, normal: true, retention: keep}
+  - {name: ehlo, template: "smtp cmd EHLO mx<N>", meaning: m, normal: true, retention: keep}
+  - {name: client, template: "client <HOST>", meaning: m, normal: true, retention: keep}
+  - {name: sasl, template: "warning SASL LOGIN authentication failed", meaning: m, normal: false, retention: keep-extended}
+  - {name: mail_from, template: "smtp cmd MAIL FROM <EMAIL>", meaning: m, normal: true, retention: keep}
+  - {name: rcpt_to, template: "smtp cmd RCPT TO <EMAIL>", meaning: m, normal: true, retention: keep}
+  - {name: resp, template: "smtp resp to EHLO", meaning: m, normal: true, retention: keep}
+  - {name: queued, template: "Q <QID> from <EMAIL> size <N> nrcpt <N> queue active", meaning: m, normal: true, retention: keep}
+  - {name: removed, template: "Q <QID> removed", meaning: m, normal: true, retention: keep}
 """
     p = tmp_path / "schema.yaml"
     p.write_text(good, encoding="utf-8")

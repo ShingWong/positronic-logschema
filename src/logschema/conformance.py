@@ -97,6 +97,11 @@ def _mutations() -> list[tuple[str, str, str, object, str]]:
             "template": "wording that appears in no log line anywhere",
             "meaning": "a class invented to prove the validator rejects it",
             "normal": True,
+            # Valid retention on purpose: this fixture probes template
+            # matching, and an invalid retention would trip the retention
+            # gate first -- failing for the wrong reason, which the harness
+            # correctly reports as a hole.
+            "retention": "keep",
         })
         return s
 
@@ -178,6 +183,29 @@ def _mutations() -> list[tuple[str, str, str, object, str]]:
         s.pop("identity_key", None)
         return s
 
+    def unknown_retention(s: dict) -> dict:
+        # A retention value the engine cannot map. Without the allowed-set
+        # check this silently becomes the domain default: keep-extended
+        # evidence decaying as balanced, or drop-classed noise ingested as
+        # keep. Only expressible against a schema declaring classes.
+        s = _copy(s)
+        if not s.get("classes"):
+            s["classes"] = [{
+                "name": "__no_classes_in_this_schema__",
+                "template": "__no_template__",
+                "meaning": "fallback",
+                "normal": True,
+                "retention": "keep-forever",
+            }]
+            s["__fixture_note__"] = {
+                "target": "classes_resolve",
+                "must_contain": "no usable retention",
+            }
+            return s
+        s["classes"] = [dict(c) for c in s["classes"]]
+        s["classes"][0]["retention"] = "keep-forever"
+        return s
+
     def pattern_matches_nothing(s: dict) -> dict:
         # The message-axis analogue of the phantom class: a pattern that
         # compiles but extracts nothing. Only expressible against a schema
@@ -217,6 +245,9 @@ def _mutations() -> list[tuple[str, str, str, object, str]]:
         ("message-pattern-matches-nothing", "message_key", "extracts nothing",
          pattern_matches_nothing,
          "a message pattern that compiles but extracts no identity"),
+        ("retention-is-unknown", "classes_resolve", "no usable retention",
+         unknown_retention,
+         "a class retention value the engine cannot map to a profile"),
         ("identity-key-is-masked", "declared_fields_unmasked", "placeholders",
          masked_identity,
          (
