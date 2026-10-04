@@ -38,7 +38,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from .profile import _STR_FORMATS, PLACEHOLDER, content_candidates, profile_fields
-from .validate import _match_shape, declared_fields, identity_field
+from .validate import (
+    _match_shape,
+    declared_fields,
+    extract_message_ids,
+    identity_field,
+)
 
 
 @dataclass
@@ -63,6 +68,8 @@ class Projected:
     identity_fields: tuple[str, ...] = ()
     canonical_name: str | None = None
     kind: str | None = None
+    message_ids: list[str] = field(default_factory=list)
+    message_name: str | None = None
     class_name: str | None = None
     class_template: str | None = None
     stream_hint: str | None = None
@@ -82,6 +89,10 @@ class Projected:
                 "fields": list(self.identity_fields),
                 "kind": self.kind,
                 "canonical_name": self.canonical_name,
+            },
+            "message": {
+                "name": self.message_name,
+                "ids": list(self.message_ids),
             },
             "class": {"name": self.class_name, "template": self.class_template},
             "stream_hint": self.stream_hint,
@@ -176,6 +187,18 @@ class Projector:
             if any(_is_redacted(record.get(k)) for k in self.key):
                 p.notes.append("identity contains a redacted component; the "
                                "canonical name is not resolvable to one entity")
+
+        # --- the message axis ------------------------------------------
+        # The second identity, when the schema declares one. A filter
+        # re-injection names two queue ids; both are kept, because the join
+        # exists to follow the handoff and the first id alone ends at it.
+        mk = self.schema.get("message_key") or {}
+        if mk.get("pattern") and mk.get("field"):
+            p.message_name = mk.get("name") or "message_id"
+            try:
+                p.message_ids = extract_message_ids(self.schema, record)
+            except ValueError as e:
+                p.notes.append(str(e))
 
         # --- class -------------------------------------------------------
         if self.text_field:

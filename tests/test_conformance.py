@@ -61,7 +61,7 @@ def test_good_schema_passes_before_any_fixture_matters(records, schema_file):
 def test_write_then_run_rejects_every_fixture(records, jsonl, schema_file, tmp_path):
     out = str(tmp_path / "fixtures")
     w = write_fixtures(jsonl, schema_file, out)
-    assert len(w["fixtures"]) == 6
+    assert len(w["fixtures"]) == 7
 
     res = run_fixtures(jsonl, out)
     assert res["holes"] == [], (
@@ -79,7 +79,8 @@ def test_every_predicate_that_can_fail_is_covered_by_a_fixture(
     index = json.loads((tmp_path / "fixtures" / FIXTURE_INDEX).read_text())
     covered = {f["target_predicate"] for f in index["fixtures"]}
     for required in ("fields_present", "identity_key", "classes_resolve",
-                     "clock_resolvable", "declared_fields_unmasked"):
+                     "clock_resolvable", "declared_fields_unmasked",
+                     "message_key"):
         assert required in covered, f"no fixture probes {required}"
 
 

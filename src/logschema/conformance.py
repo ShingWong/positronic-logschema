@@ -178,6 +178,27 @@ def _mutations() -> list[tuple[str, str, str, object, str]]:
         s.pop("identity_key", None)
         return s
 
+    def pattern_matches_nothing(s: dict) -> dict:
+        # The message-axis analogue of the phantom class: a pattern that
+        # compiles but extracts nothing. Only expressible against a schema
+        # that declares a message_key; otherwise the mutation has nothing to
+        # break, and it says so rather than pretending.
+        s = _copy(s)
+        if "message_key" not in s:
+            s["message_key"] = {
+                "name": "__no_message_key_in_this_schema__",
+                "field": "field_that_does_not_exist",
+                "pattern": "(x)",
+            }
+            s["__fixture_note__"] = {
+                "target": "message_key",
+                "must_contain": "not in the data",
+            }
+            return s
+        s["message_key"] = dict(s["message_key"])
+        s["message_key"]["pattern"] = "(zzz-no-such-token-zzz)"
+        return s
+
     return [
         ("field-does-not-exist", "fields_present", "missing", drop_field,
          "a declared field that is not in the data"),
@@ -193,6 +214,9 @@ def _mutations() -> list[tuple[str, str, str, object, str]]:
         ("clock-is-not-a-clock", "clock_resolvable", "best clock",
          wrong_clock,
          "a declared clock that is not the data's best clock"),
+        ("message-pattern-matches-nothing", "message_key", "extracts nothing",
+         pattern_matches_nothing,
+         "a message pattern that compiles but extracts no identity"),
         ("identity-key-is-masked", "declared_fields_unmasked", "placeholders",
          masked_identity,
          (

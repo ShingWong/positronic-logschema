@@ -50,6 +50,7 @@ PREDICATES = (
     ("fields_present", "every declared identity/content field exists in the data"),
     ("classes_resolve", "every declared class matches records and covers the corpus"),
     ("identity_key", "the identity key produces recurring groups with coherent structure"),
+    ("message_key", "the declared message pattern extracts the message identity"),
     ("every_record_classed", "no record falls outside the declared classes"),
     ("clock_resolvable", "every record gets a resolvable timestamp"),
     ("deterministic", "re-running the validator produces the same verdict"),
@@ -268,6 +269,9 @@ def validate(schema: dict, records: list[dict], *, hit_limit: bool = False,
 
     # ---- 2/3. the identity key -------------------------------------------
     results.append(_check_identity(schema, records, time_hint, partial, m))
+
+    # ---- 2b. the message axis, when the schema declares one ---------------
+    results.append(_check_message_key(schema, records, partial))
 
     # ---- 2/4. classes ----------------------------------------------------
     results.extend(_check_classes(schema, records, partial, m))
@@ -584,3 +588,109 @@ def _check_clock(schema: dict, records: list[dict],
         f"{top.monotonic:.0%}",
         top.as_dict(),
     )
+
+
+_RX_CACHE: dict[str, re.Pattern] = {}
+
+
+def extract_message_ids(schema: dict, record: dict) -> list[str]:
+    """Every message identity a record carries, via the declared pattern.
+
+    ALL matches, not the first. A filter re-injection line names two queue
+    ids -- the pre-filter one it arrived with and the post-filter one it left
+    with -- and keeping only the first silently drops the handoff the join
+    exists to follow. Duplicates within one record collapse; order is by first
+    appearance so the result stays deterministic.
+    """
+    mk = schema.get("message_key") or {}
+    pattern = mk.get("pattern")
+    field = mk.get("field")
+    if not pattern or not field:
+        return []
+    rx = _RX_CACHE.get(pattern)
+    if rx is None:
+        rx = re.compile(pattern)
+        _RX_CACHE[pattern] = rx
+    seen: list[str] = []
+    for hit in rx.findall(record.get(field) or ""):
+        # A pattern with several groups returns tuples; the schema must declare
+        # exactly one group, which `_check_message_key` enforces, so anything
+        # else here is a caller that skipped validation.
+        if isinstance(hit, tuple):
+            raise ValueError(
+                "message_key pattern must contain exactly one capture group")
+        if hit not in seen:
+            seen.append(hit)
+    return seen
+
+
+def _check_message_key(schema: dict, records: list[dict],
+                       partial: bool) -> PredicateResult:
+    """Does the declared message pattern extract a real message identity?
+
+    Optional: a schema without `message_key` passes with nothing to say. A mail
+    log has two entity axes -- the connection `(ident, pid)` and the message
+    (the queue id inside the text) -- and one `identity_key` cannot express
+    both. The queue id is not a field because it is a Postfix convention inside
+    the message, not something syslog delimits, so it is declared as a pattern
+    against the content field instead.
+    """
+    mk = schema.get("message_key")
+    if not mk:
+        return PredicateResult(
+            "message_key", True, "no message key declared",
+            {"declared": False})
+    field = mk.get("field")
+    pattern = mk.get("pattern")
+    if not field or not pattern:
+        return PredicateResult(
+            "message_key", False,
+            "message_key needs both `field` and `pattern`",
+            {"declared": True}, fatal=True)
+    if not any(field in r for r in records):
+        # A pattern aimed at a field that is not in the data extracts nothing,
+        # and that is a schema error, not an empty result worth reporting as
+        # a rate.
+        return PredicateResult(
+            "message_key", False,
+            f"message_key field {field!r} is not in the data",
+            {"declared": True, "field": field}, fatal=True)
+    try:
+        rx = re.compile(pattern)
+    except re.error as e:
+        return PredicateResult(
+            "message_key", False, f"message_key pattern does not compile: {e}",
+            {"declared": True, "pattern": pattern}, fatal=True)
+    if rx.groups != 1:
+        return PredicateResult(
+            "message_key", False,
+            f"message_key pattern has {rx.groups} capture groups; exactly one "
+            f"is allowed, because with several there is no saying which one "
+            f"is the identity",
+            {"declared": True, "pattern": pattern, "groups": rx.groups},
+            fatal=True)
+    hits = 0
+    multi = 0
+    distinct: set[str] = set()
+    for r in records:
+        ids = rx.findall(r.get(field) or "")
+        flat = [h[0] if isinstance(h, tuple) else h for h in ids]
+        if flat:
+            hits += 1
+            distinct.update(flat)
+            if len(set(flat)) > 1:
+                multi += 1
+    if not hits:
+        return PredicateResult(
+            "message_key", False,
+            f"message_key pattern extracts nothing from "
+            f"{len(records):,} records",
+            {"declared": True, "pattern": pattern, "records": len(records)})
+    rate = hits / len(records)
+    return PredicateResult(
+        "message_key", True,
+        f"{mk.get('name', 'message id')} extracted from {hits:,} of "
+        f"{len(records):,} records ({rate:.1%}), {len(distinct):,} distinct",
+        {"declared": True, "pattern": pattern, "records_with_id": hits,
+         "extraction_rate": round(rate, 4), "distinct_ids": len(distinct),
+         "multi_id_records": multi})

@@ -2,6 +2,15 @@ software: postfix
 identity_key: [ident, pid]
 time_field: stamp
 
+# The second axis. The connection (ident, pid) is who is talking; the queue id
+# is what is being talked ABOUT, and it is the only identity that survives a
+# handoff across programs. It is a pattern, not a field, because it is a
+# Postfix convention inside the message text -- syslog delimits no such field.
+message_key:
+  name: queue_id
+  field: message
+  pattern: "\\b([0-9A-F]{10,13})\\b"
+
 record_layers:
   envelope:
     - {path: stamp, role: context, type: timestamp, meaning: "syslog write time; the measured clock. BSD syslog omits the year, so this is a reconstruction from a named source."}

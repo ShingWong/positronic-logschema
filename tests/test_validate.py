@@ -281,9 +281,9 @@ def test_report_serialises_and_names_every_predicate(records):
     rep = check(GOOD, records, time_hint="stamp")
     d = rep.as_dict()
     assert d["validated"] is True
-    assert len(d["predicates"]) == 6
+    assert len(d["predicates"]) == 7
     assert {r["name"] for r in d["results"]} >= {
-        "fields_present", "classes_resolve", "identity_key",
+        "fields_present", "classes_resolve", "identity_key", "message_key",
         "clock_resolvable", "deterministic"}
     json.dumps(d)  # must be serialisable for `--json`
 
@@ -346,3 +346,115 @@ def test_load_schema_reads_a_file(tmp_path):
     p = tmp_path / "s.yaml"
     p.write_text(GOOD, encoding="utf-8")
     assert load_schema(str(p))["software"] == "postfix"
+
+
+# ------------------------------------------------------- message_key
+
+def _schema_with_message_key(**over):
+    s = {
+        "software": "x",
+        "identity_key": "pid",
+        "time_field": "stamp",
+        "record_layers": {
+            "envelope": [
+                {"path": "pid", "role": "identity", "type": "str",
+                 "meaning": "p"},
+                {"path": "stamp", "role": "context", "type": "timestamp",
+                 "meaning": "t"},
+            ],
+            "payload": [
+                {"path": "message", "role": "content", "type": "str",
+                 "meaning": "m"},
+            ],
+        },
+        "classes": [],
+        "message_key": {
+            "name": "queue_id",
+            "field": "message",
+            "pattern": r"\b([0-9A-F]{10,13})\b",
+        },
+    }
+    s.update(over)
+    return s
+
+
+def _mk_records():
+    return [
+        {"pid": "1", "stamp": "2026-01-01T00:00:00", "message": "2C79E142DE806: from=<a@b.c>"},
+        {"pid": "1", "stamp": "2026-01-01T00:00:01", "message": "connect from x"},
+        {"pid": "2", "stamp": "2026-01-01T00:00:02",
+         "message": "E7855142DE7B0: queued as 2C79E142DE806"},
+    ]
+
+
+def test_message_key_absent_passes_silently():
+    from logschema.validate import validate
+    s = _schema_with_message_key()
+    del s["message_key"]
+    rep = validate(s, _mk_records())
+    r = next(r for r in rep.results if r.name == "message_key")
+    assert r.passed and r.evidence["declared"] is False
+
+
+def test_message_key_extracts_and_reports_rate():
+    from logschema.validate import validate
+    rep = validate(_schema_with_message_key(), _mk_records())
+    r = next(r for r in rep.results if r.name == "message_key")
+    assert r.passed
+    assert r.evidence["records_with_id"] == 2
+    assert r.evidence["distinct_ids"] == 2
+    assert r.evidence["multi_id_records"] == 1
+
+
+def test_message_key_pattern_must_compile():
+    from logschema.validate import validate
+    s = _schema_with_message_key()
+    s["message_key"]["pattern"] = "(unclosed"
+    rep = validate(s, _mk_records())
+    r = next(r for r in rep.results if r.name == "message_key")
+    assert not r.passed and "does not compile" in r.detail
+
+
+def test_message_key_needs_exactly_one_group():
+    from logschema.validate import validate
+    for pattern in (r"\b[0-9A-F]+\b", r"(\b[0-9A-F]+\b) (\w+)"):
+        s = _schema_with_message_key()
+        s["message_key"]["pattern"] = pattern
+        rep = validate(s, _mk_records())
+        r = next(r for r in rep.results if r.name == "message_key")
+        assert not r.passed and "exactly one" in r.detail
+
+
+def test_message_key_extracting_nothing_fails():
+    from logschema.validate import validate
+    s = _schema_with_message_key()
+    s["message_key"]["pattern"] = "(zzz-no-such-token-zzz)"
+    rep = validate(s, _mk_records())
+    r = next(r for r in rep.results if r.name == "message_key")
+    assert not r.passed and "extracts nothing" in r.detail
+
+
+def test_message_key_missing_field_is_fatal():
+    from logschema.validate import validate
+    s = _schema_with_message_key()
+    s["message_key"]["field"] = "no_such_field"
+    rep = validate(s, _mk_records())
+    r = next(r for r in rep.results if r.name == "message_key")
+    assert not r.passed and r.fatal
+
+
+def test_extract_message_ids_keeps_every_id_in_order():
+    from logschema.validate import extract_message_ids
+    s = _schema_with_message_key()
+    ids = extract_message_ids(
+        s, {"message": "E7855142DE7B0: queued as 2C79E142DE806, again 2C79E142DE806"})
+    assert ids == ["E7855142DE7B0", "2C79E142DE806"]
+
+
+def test_preview_carries_the_message_axis():
+    from logschema.project import Projector
+    recs = _mk_records()
+    p = Projector(_schema_with_message_key(), recs)
+    out = p.project(recs[2], 2).as_dict()
+    assert out["message"] == {"name": "queue_id",
+                              "ids": ["E7855142DE7B0", "2C79E142DE806"]}
