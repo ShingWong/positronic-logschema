@@ -94,6 +94,7 @@ class SyslogFacts:
     ambiguous: int = 0           # records whose year was near-enough a coin flip
     undated: int = 0             # records emitted with no year at all
     unmatched: int = 0            # lines that did not parse
+    joined: int = 0               # continuation lines appended to a record
     sample_unmatched: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict:
@@ -106,27 +107,71 @@ class SyslogFacts:
             "year_ambiguous_records": self.ambiguous,
             "undated_records": self.undated,
             "unmatched_lines": self.unmatched,
+            "joined_continuation_lines": self.joined,
             "unmatched_samples": self.sample_unmatched[:3],
         }
+
+
+def sample(head: bytes, limit: int = 40) -> tuple[int, int, int, int]:
+    """Vote across many lines, not just the first.
+
+    Returns (bsd, rfc5424, other, continuation) over the first `limit`
+    non-empty lines. One line is not evidence of a file: a JSON payload inside
+    a syslog message, a wrapped line, or a mixed export can all make the first
+    line lie. Callers require a quorum before naming a dialect, and conflicting
+    dialects are reported as mixed rather than resolved by position.
+
+    A non-matching line that FOLLOWS a syslog line is a continuation, not a
+    vote against: tracebacks, wrapped lines and multi-line payloads carry no
+    timestamp by nature. Only prose with no record before it counts as `other`.
+    """
+    bsd = rfc = other = cont = 0
+    n = 0
+    prev_syslog = False
+    for line in head.decode("utf-8", errors="replace").splitlines():
+        if not line.strip():
+            continue
+        n += 1
+        if n > limit:
+            break
+        line = line.rstrip()
+        if _RFC5424.match(line):
+            rfc += 1
+            prev_syslog = True
+        elif _BSD.match(line):
+            bsd += 1
+            prev_syslog = True
+        elif prev_syslog:
+            cont += 1
+        else:
+            other += 1
+            prev_syslog = False
+    return bsd, rfc, other, cont
 
 
 def sniff(head: bytes) -> str | None:
     """Which syslog dialect is this, if it is syslog at all?
 
-    Decided on the bytes, never the extension. `maillog` has no extension and
-    `syslog.txt` may be JSONL; the first lines are the only evidence there is.
+    Decided on the bytes, never the extension. `maillog` has none, and a
+    `syslog.txt` may be JSONL. Requires a quorum of the sampled lines: a single
+    matching first line followed by anything else is not a syslog file.
     """
-    text = head.decode("utf-8", errors="replace")
-    for line in text.splitlines()[:40]:
-        line = line.rstrip()
-        if not line.strip():
-            continue
-        if _RFC5424.match(line):
-            return "rfc5424"
-        if _BSD.match(line):
-            return "bsd"
-        # A non-empty first line that matches neither dialect is not syslog.
+    bsd, rfc, other, _cont = sample(head)
+    total = bsd + rfc + other
+    if total == 0:
         return None
+    if total < 3:
+        # A one- or two-line file has no room for a quorum. If every counted
+        # line matches one dialect, that is all the evidence there is.
+        if bsd and not rfc and not other:
+            return "bsd"
+        if rfc and not bsd and not other:
+            return "rfc5424"
+        return None
+    if bsd / total >= 0.8 and rfc == 0:
+        return "bsd"
+    if rfc / total >= 0.8 and bsd == 0:
+        return "rfc5424"
     return None
 
 
@@ -199,49 +244,98 @@ def _iso(ref: datetime | None, mon: int, day: int, hms: str,
     return best.isoformat()
 
 
+def _emit_bsd(m, facts: SyslogFacts) -> dict:
+    stamp = _iso(facts.reference, _MONTHS.get(m["mon"], 1),
+                 int(m["day"]), m["hms"], facts)
+    return {STAMP: stamp, HOST: m["host"], IDENT: m["ident"],
+            PID: m["pid"] or "", MESSAGE: m["msg"]}
+
+
 def read_bsd(path: Path, limit: int, facts: SyslogFacts) -> Iterator[dict]:
+    """Yield BSD records, joining continuation lines into the record they follow.
+
+    Wrapped lines, tracebacks and multi-line payloads do not start with a
+    timestamp, so a strict one-line-per-record reader either drops them or
+    counts them as unparsed. They belong to the previous record instead, which
+    is a window of lines forming one record rather than one line each. A run of
+    more than 200 continuations is flushed as-is: past that point this is a
+    dump, not a record, and growing one string without bound is how a reader
+    turns a corrupt file into an out-of-memory error.
+    """
     with path.open(encoding="utf-8", errors="replace") as fh:
         n = 0
+        current: dict | None = None
+        runs = 0
         for line in fh:
-            if n >= limit:
+            if n >= limit and current is None:
                 break
             line = line.rstrip("\n")
             if not line.strip():
                 continue
             m = _BSD.match(line)
-            if not m:
+            if m:
+                if current is not None:
+                    n += 1
+                    if n > limit:
+                        return
+                    yield current
+                current = _emit_bsd(m, facts)
+                runs = 0
+            elif current is not None and runs < 200:
+                current[MESSAGE] += "\n" + line.strip()
+                facts.joined += 1
+                runs += 1
+            else:
+                if current is not None:
+                    n += 1
+                    if n > limit:
+                        return
+                    yield current
+                    current = None
                 facts.unmatched += 1
                 if len(facts.sample_unmatched) < 5:
                     facts.sample_unmatched.append(line[:160])
-                continue
-            stamp = _iso(facts.reference, _MONTHS.get(m["mon"], 1),
-                         int(m["day"]), m["hms"], facts)
-            rec = {STAMP: stamp, HOST: m["host"], IDENT: m["ident"],
-                   MESSAGE: m["msg"]}
-            rec[PID] = m["pid"] or ""
-            n += 1
-            yield rec
+        if current is not None and n < limit:
+            yield current
 
 
 def read_rfc5424(path: Path, limit: int, facts: SyslogFacts) -> Iterator[dict]:
     with path.open(encoding="utf-8", errors="replace") as fh:
         n = 0
+        current: dict | None = None
+        runs = 0
         for line in fh:
-            if n >= limit:
+            if n >= limit and current is None:
                 break
             line = line.rstrip("\n")
             if not line.strip():
                 continue
             m = _RFC5424.match(line)
-            if not m:
+            if m:
+                if current is not None:
+                    n += 1
+                    if n > limit:
+                        return
+                    yield current
+                current = {STAMP: m["ts"], HOST: m["host"], IDENT: m["ident"],
+                           PID: m["pid"], MESSAGE: m["msg"]}
+                runs = 0
+            elif current is not None and runs < 200:
+                current[MESSAGE] += "\n" + line.strip()
+                facts.joined += 1
+                runs += 1
+            else:
+                if current is not None:
+                    n += 1
+                    if n > limit:
+                        return
+                    yield current
+                    current = None
                 facts.unmatched += 1
                 if len(facts.sample_unmatched) < 5:
                     facts.sample_unmatched.append(line[:160])
-                continue
-            rec = {STAMP: m["ts"], HOST: m["host"], IDENT: m["ident"],
-                   PID: m["pid"], MESSAGE: m["msg"]}
-            n += 1
-            yield rec
+        if current is not None and n < limit:
+            yield current
 
 
 def prepare(path: Path, dialect: str) -> SyslogFacts:

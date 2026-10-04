@@ -102,14 +102,23 @@ def test_tag_without_pid_is_kept(tmp_path):
 
 
 def test_unparsed_lines_are_counted_not_dropped_silently(tmp_path):
+    """Stray prose with no record before it is unparsed, and counted. (Prose
+    AFTER a record is a continuation -- see `test_continuation_lines` -- so the
+    stray line here comes first, where there is nothing to join.)"""
+    # Four good lines to one stray: enough evidence for the quorum, so the
+    # file reads as syslog and the stray is counted rather than silently kept
+    # (as text would) or silently dropped.
     p = _write(tmp_path, "maillog", [
-        "Sep 27 03:27:45 mx1 postfix/smtpd[1]: ok",
         "this line is not syslog at all",
+        "Sep 27 03:27:45 mx1 postfix/smtpd[1]: ok",
         "Sep 27 03:27:46 mx1 postfix/smtpd[1]: ok",
+        "Sep 27 03:27:47 mx1 postfix/smtpd[1]: ok",
+        "Sep 27 03:27:48 mx1 postfix/smtpd[1]: ok",
     ])
     sub = detect(p)
+    assert sub.kind == "syslog"
     recs = list(read(sub, limit=10))
-    assert len(recs) == 2
+    assert len(recs) == 4
     assert sub.facts.unmatched == 1
     assert "not syslog" in sub.facts.sample_unmatched[0]
 
@@ -242,3 +251,79 @@ def test_as_dict_is_json_serialisable(tmp_path):
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-q"]))
+
+
+# ------------------------------------------------- multi-line evidence
+
+def test_sniff_requires_a_quorum_not_just_the_first_line(tmp_path):
+    """One syslog line among prose is not a syslog file. The old sniff looked
+    only at the first non-empty line, so a mixed export was read as syslog and
+    every prose line after it counted as unparsed. (Prose AFTER a syslog line
+    is a continuation, not evidence against -- that is `test_continuation`'s
+    case, so the prose here comes first.)"""
+    p = _write(tmp_path, "mixed.log", [
+        "this is not syslog",
+        "neither is this",
+        "nor this",
+        "Sep 27 03:27:45 mx1 postfix/smtpd[1]: ok",
+    ])
+    assert syslogfmt.sniff(p.read_bytes()) is None
+
+
+def test_mixed_dialects_are_named_not_guessed(tmp_path):
+    from logschema.substrate import detect
+    p = _write(tmp_path, "mixed.log", [
+        "Sep 27 03:27:45 mx1 postfix/smtpd[1]: bsd here",
+        "<134>1 2026-09-27T03:27:45Z mx1 smtpd 1 - - rfc here",
+        "Sep 27 03:27:46 mx1 postfix/smtpd[1]: bsd again",
+        "<134>1 2026-09-27T03:27:46Z mx1 smtpd 1 - - rfc again",
+    ])
+    sub = detect(p)
+    assert sub.kind == "text"
+    assert "mixed syslog dialects" in sub.note
+
+
+def test_continuation_lines_join_the_record_they_follow(tmp_path):
+    """Tracebacks and wrapped lines carry no timestamp. They are the previous
+    record's, not unparsed noise."""
+    from logschema.substrate import detect
+    p = _write(tmp_path, "maillog", [
+        "Sep 27 03:27:45 mx1 app[1]: starting job",
+        "Traceback (most recent call last):",
+        '  File "x.py", line 1, in <module>',
+        "Sep 27 03:27:46 mx1 app[1]: next job",
+    ])
+    sub = detect(p)
+    recs = list(read(sub, limit=10))
+    assert len(recs) == 2
+    assert "Traceback" in recs[0]["message"]
+    assert sub.facts.joined == 2
+
+
+def test_multiline_json_is_one_record_not_five_lines(tmp_path):
+    """Pretty-printed JSON is one record. The old reader parsed line-by-line,
+    so it kept the opening brace line as nothing and skipped the rest."""
+    from logschema.substrate import detect
+    p = _write(tmp_path, "x.jsonl", [
+        "{",
+        '  "stamp": "2026-10-03T20:44:15",',
+        '  "message": "hi { with a brace in it",',
+        '  "n": 3',
+        "}",
+    ])
+    sub = detect(p)
+    recs = list(read(sub, limit=10))
+    assert len(recs) == 1
+    assert recs[0]["message"] == "hi { with a brace in it"
+    assert sub.joined == 4
+
+
+def test_leading_prose_is_skipped_and_counted(tmp_path):
+    from logschema.substrate import detect
+    p = _write(tmp_path, "x.jsonl", [
+        "note: export begins",
+        '{"a": 1}',
+    ])
+    sub = detect(p)
+    assert list(read(sub, limit=10)) == [{"a": 1}]
+    assert sub.skipped == 1

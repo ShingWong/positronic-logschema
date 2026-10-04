@@ -45,6 +45,8 @@ class Substrate:
     available: int | None = None  # total records, when cheaply knowable
     hit_limit: bool = False       # stopped early, so there IS more in the file
     note: str = ""
+    joined: int = 0               # physical lines assembled into fewer records
+    skipped: int = 0              # lines that could not become a record
     # Populated for the syslog substrate only. A BSD syslog file carries no
     # year, so every timestamp it yields is a reconstruction; `facts` is how
     # that reconstruction is disclosed rather than implied.
@@ -75,6 +77,8 @@ class Substrate:
             "available": self.available,
             "truncated": self.truncated,
             "note": self.note,
+            "joined_lines": self.joined,
+            "skipped_lines": self.skipped,
         }
         if self.facts is not None:
             out["syslog"] = self.facts.as_dict()
@@ -128,6 +132,17 @@ def detect(path: str | Path) -> Substrate:
     # that, and the failure is silent.
     if suffix in (".log", ".txt", ".out", "") or suffix not in {
             ".jsonl", ".ndjson", ".json", ".csv", ".tsv", ".psv"}:
+        bsd, rfc, other, _cont = syslogfmt.sample(head)
+        total = bsd + rfc + other
+        if bsd and rfc:
+            # Two dialects in one sample is conflicting evidence, not a vote
+            # with a winner. Guessing per line would assign records to the
+            # wrong clock; refusing names the file for what it is instead.
+            return Substrate(
+                "text", p, fields=[MESSAGE],
+                note=f"mixed syslog dialects in the first {total} sampled "
+                     f"lines ({bsd} BSD, {rfc} RFC 5424); read as text "
+                     f"rather than guessed per line")
         dialect = syslogfmt.sniff(head)
         if dialect:
             facts = syslogfmt.prepare(p, dialect)
@@ -241,31 +256,74 @@ def read(sub: Substrate, limit: int = 200_000) -> Iterator[dict]:
             n += 1
             yield rec
         sub.read = n
+        sub.joined = facts.joined
+        sub.skipped = facts.unmatched
         return
     if sub.kind == "jsonl":
+        # A record is a complete JSON value, which may span lines. The old
+        # reader parsed line-by-line and silently skipped every continuation
+        # line of a pretty-printed object, so a file of 1,000 five-line records
+        # read as 1,000 records and 4,000 silent skips. Buffer until the braces
+        # balance (string-aware, so a brace inside a value does not end the
+        # record), with a cap so one corrupt file cannot grow the buffer
+        # without bound.
         n = 0
         hit_limit = False
+        buf: list[str] = []
+        depth = 0
+        in_str = False
+        esc = False
+        started = False
         with sub.path.open(encoding="utf-8", errors="replace") as fh:
             for line in fh:
                 if n >= limit:
-                    # Peek one more line so `hit_limit` distinguishes "the file
-                    # ended exactly at the limit" from "there was more". A file
-                    # with precisely `limit` records is not truncated, and
-                    # claiming otherwise on every exact-size file would make the
-                    # disclosure noise.
                     if line.strip():
                         hit_limit = True
                     break
-                line = line.strip()
-                if not line:
+                if not line.strip():
                     continue
-                try:
-                    obj = json.loads(line)
-                except json.JSONDecodeError:
+                if not started:
+                    if line.strip()[0] not in "{[":
+                        sub.skipped += 1
+                        continue
+                    started = True
+                buf.append(line)
+                for ch in line:
+                    if in_str:
+                        if esc:
+                            esc = False
+                        elif ch == "\\":
+                            esc = True
+                        elif ch == '"':
+                            in_str = False
+                    elif ch == '"':
+                        in_str = True
+                    elif ch in "{[":
+                        depth += 1
+                    elif ch in "]}":
+                        depth -= 1
+                if len(buf) > 1000 or sum(len(b) for b in buf) > 1_000_000:
+                    sub.skipped += len(buf)
+                    buf, depth, started = [], 0, False
+                    in_str, esc = False, False
                     continue
-                if isinstance(obj, dict):
-                    n += 1
-                    yield obj
+                if started and depth <= 0 and buf:
+                    try:
+                        obj = json.loads("".join(buf))
+                    except json.JSONDecodeError:
+                        sub.skipped += len(buf)
+                    else:
+                        if isinstance(obj, dict):
+                            n += 1
+                            if len(buf) > 1:
+                                sub.joined += len(buf) - 1
+                            yield obj
+                        else:
+                            sub.skipped += len(buf)
+                    buf, depth, started = [], 0, False
+                    in_str, esc = False, False
+            if buf:
+                sub.skipped += len(buf)
         sub.read = n
         sub.hit_limit = hit_limit
     elif sub.kind == "json":
