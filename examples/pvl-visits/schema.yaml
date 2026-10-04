@@ -1,0 +1,169 @@
+software: pvl
+identity_key: who
+time_field: ts
+record_layers:
+  envelope:
+    - {path: who, role: identity, type: str, meaning: visitor identifier}
+    - {path: ts, role: context, type: float, meaning: visit timestamp}
+  payload:
+    - {path: desc, role: content, type: str, meaning: free-text visit note}
+    - {path: room, role: context, type: str, meaning: room visited}
+    - {path: loc, role: context, type: str, meaning: building location}
+    - {path: acc, role: context, type: str, meaning: access type code}
+    - {path: n, role: context, type: int, meaning: party size count}
+classes:
+  - name: routine_visit_no_note
+    template: ""
+    meaning: a routine visit with no note
+    normal: true
+    retention: demote
+  - name: west_wing_tour
+    template: "WEST WING TOUR"
+    meaning: a routine west wing tour visit
+    normal: true
+    retention: demote
+  - name: group_tour
+    template: "GROUP TOUR"
+    meaning: a routine group tour visit
+    normal: true
+    retention: demote
+  - name: dr_visit
+    template: "DR"
+    meaning: a routine visit coded dr
+    normal: true
+    retention: keep
+  - name: marine_one
+    template: "Marine One"
+    meaning: a visit for marine one movement
+    normal: true
+    retention: keep-extended
+  - name: reclear
+    template: "reclear"
+    meaning: a visit requiring security reclear
+    normal: false
+    retention: keep-extended
+  - name: meeting
+    template: "meeting"
+    meaning: a routine meeting visit
+    normal: true
+    retention: keep
+  - name: truman_bowling_alley
+    template: "Truman Bowling Alley"
+    meaning: a routine bowling alley visit
+    normal: true
+    retention: keep
+  - name: bowling
+    template: "Bowling"
+    meaning: a routine bowling visit
+    normal: true
+    retention: keep
+  - name: meeting_capitalized
+    template: "Meeting"
+    meaning: a routine meeting visit
+    normal: true
+    retention: keep
+  - name: marine_one_ceremony
+    template: "Marine One Ceremony"
+    meaning: a visit for a marine one ceremony
+    normal: true
+    retention: keep-extended
+  - name: bowling_alley
+    template: "Bowling Alley"
+    meaning: a routine bowling alley visit
+    normal: true
+    retention: keep
+  - name: west_wing_lobby
+    template: "west wing lobby"
+    meaning: a routine west wing lobby visit
+    normal: true
+    retention: keep
+  - name: comments_note
+    template: "Comments"
+    meaning: a routine visit with a comments note
+    normal: true
+    retention: demote
+  - name: none_note
+    template: "none"
+    meaning: a routine visit marked none
+    normal: true
+    retention: demote
+  - name: regular_appointment_not_press
+    template: "Regular appointment not press"
+    meaning: a routine non-press appointment visit
+    normal: true
+    retention: keep
+  - name: pesi_upper
+    template: "PESI"
+    meaning: a routine pesi visit
+    normal: true
+    retention: keep
+  - name: ww_tour
+    template: "WW TOUR"
+    meaning: a routine west wing tour visit
+    normal: true
+    retention: demote
+  - name: west_wing
+    template: "WEST WING"
+    meaning: a routine west wing visit
+    normal: true
+    retention: demote
+  - name: time_change_per_requestor_upper
+    template: "TIME CHANGE PER REQUESTOR"
+    meaning: a visit with a rescheduled time
+    normal: false
+    retention: demote
+  - name: pesi_lower
+    template: "pesi"
+    meaning: a routine pesi visit
+    normal: true
+    retention: keep
+  - name: reclear_capitalized
+    template: "Reclear"
+    meaning: a visit requiring security reclear
+    normal: false
+    retention: keep-extended
+  - name: f_code
+    template: "F"
+    meaning: a routine visit coded f
+    normal: true
+    retention: keep
+  - name: west_wing_tour_mixed
+    template: "West Wing Tour"
+    meaning: a routine west wing tour visit
+    normal: true
+    retention: demote
+  - name: time_changed_per_requestor
+    template: "Time changed per requestor"
+    meaning: a visit with a rescheduled time
+    normal: false
+    retention: demote
+  - name: congressional_staff
+    template: "Congressional Staff"
+    meaning: a routine congressional staff visit
+    normal: true
+    retention: keep
+  - name: reclear_upper
+    template: "RECLEAR"
+    meaning: a visit requiring security reclear
+    normal: false
+    retention: keep-extended
+  - name: wh_athletic_center
+    template: "WH Athletic Center"
+    meaning: a routine athletic center visit
+    normal: true
+    retention: keep
+  - name: wrong_dob
+    template: "wrong DOB"
+    meaning: a visit with incorrect date of birth data
+    normal: false
+    retention: keep-extended
+  - name: lunch_at_wh_mess
+    template: "Lunch at WH Mess"
+    meaning: a routine mess lunch visit
+    normal: true
+    retention: keep
+  - name: group_tour_kitchen_garden
+    template: "GROUP TOUR kitchen garden"
+    meaning: a routine kitchen garden group tour
+    normal: true
+    retention: demote

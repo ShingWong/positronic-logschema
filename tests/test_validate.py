@@ -458,3 +458,75 @@ def test_preview_carries_the_message_axis():
     out = p.project(recs[2], 2).as_dict()
     assert out["message"] == {"name": "queue_id",
                               "ids": ["E7855142DE7B0", "2C79E142DE806"]}
+
+
+# ------------------------------------------------------- empty class
+
+def _schema_with_empty(**over):
+    s = _schema_with_message_key()
+    s["classes"] = [
+        {"name": "routine_silence", "template": "",
+         "meaning": "nothing to say", "normal": True,
+         "retention": "demote"},
+    ]
+    for k, v in over.items():
+        s[k] = v
+    return s
+
+
+def test_empty_template_covers_silent_records():
+    from logschema.validate import validate
+    recs = [
+        {"pid": "1", "stamp": "2026-01-01T00:00:00", "message": ""},
+        {"pid": "1", "stamp": "2026-01-01T00:00:01", "message": None},
+        {"pid": "2", "stamp": "2026-01-01T00:00:02", "message": "2C79E142DE806: ok"},
+    ]
+    rep = validate(_schema_with_empty(), recs)
+    by_name = {r.name: r for r in rep.results}
+    assert by_name["classes_resolve"].passed
+    cov = by_name["every_record_classed"].evidence
+    assert cov["coverage"] == pytest.approx(2 / 3, abs=1e-4)
+
+
+def test_empty_template_with_no_silence_fails():
+    from logschema.validate import validate
+    recs = [
+        {"pid": "1", "stamp": "2026-01-01T00:00:00", "message": "2C79E142DE806: ok"},
+    ]
+    rep = validate(_schema_with_empty(), recs)
+    r = next(r for r in rep.results if r.name == "classes_resolve")
+    assert not r.passed
+    assert "empty template but no record has empty content" in json.dumps(
+        r.evidence.get("unmatched", []))
+
+
+def test_placeholder_only_template_is_not_the_empty_class():
+    """A template of only placeholders is a template matching nothing, not
+    the empty class spelled differently. The empty class is a blank template;
+    anything else goes through shape matching and fails honestly. (An earlier
+    version demasked first, so a real single-character code like "F" claimed
+    every silent record and coverage came out at 191.7%.)"""
+    from logschema.validate import validate
+    s = _schema_with_empty()
+    s["classes"][0]["template"] = "<HOST>"
+    recs = [
+        {"pid": "1", "stamp": "2026-01-01T00:00:00", "message": ""},
+    ]
+    rep = validate(s, recs)
+    assert not next(r for r in rep.results
+                    if r.name == "classes_resolve").passed
+
+
+def test_single_character_code_matches_its_shape():
+    """"F" is a real code, not a placeholder. It matches the F shape."""
+    from logschema.validate import validate
+    s = _schema_with_empty()
+    s["classes"][0]["template"] = "F"
+    recs = [
+        {"pid": "1", "stamp": "2026-01-01T00:00:00", "message": "F"},
+        {"pid": "2", "stamp": "2026-01-01T00:00:01", "message": ""},
+    ]
+    rep = validate(s, recs)
+    r = next(r for r in rep.results if r.name == "classes_resolve")
+    assert r.passed
+    assert r.evidence["matched"][0]["records"] == 1

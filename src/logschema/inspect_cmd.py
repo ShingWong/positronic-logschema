@@ -61,8 +61,8 @@ def inspect_path(path: str, limit: int = DEFAULT_LIMIT) -> dict:
     partial, _coverage_frac, coverage_why = coverage_is_partial(
         records, time_field, sub.hit_limit)
     idents = identity_candidates(records, time_field, partial_coverage=partial)
-    classes, untemplatable, n_shapes, _all_shapes = mine_classes(
-        records, text_field)
+    classes, untemplatable, n_shapes, _all_shapes, n_empty = \
+        mine_classes(records, text_field)
 
     total = len(records)
     masked_fields = [
@@ -96,7 +96,9 @@ def inspect_path(path: str, limit: int = DEFAULT_LIMIT) -> dict:
         "time_candidates": [t.as_dict() for t in times[:5]],
         "content_candidates": [
             {"field": f.name, "fill_rate": round(f.fill_rate, 4),
-             "mean_len": round(f.mean_len, 1), "kind": f.kind}
+             "mean_len": round(f.mean_len, 1), "kind": f.kind,
+             "vocab_reuse": round(f.vocab_reuse, 3),
+             "mean_tokens": round(f.mean_tokens, 1)}
             for f in content[:5]
         ],
         "identity_candidates": [c.as_dict() for c in idents],
@@ -113,6 +115,15 @@ def inspect_path(path: str, limit: int = DEFAULT_LIMIT) -> dict:
             "untemplatable_share": (
                 round(untemplatable / (total - untemplatable + untemplatable), 4)
                 if (total - untemplatable + untemplatable) else 0.0
+            ),
+            # Records the miner never saw: content None or empty. A large
+            # share here means silence is the normal class, and the schema
+            # needs an empty-template class to cover it -- without one,
+            # coverage cannot reach threshold no matter how many classes
+            # are declared.
+            "empty_content_records": n_empty,
+            "empty_content_share": (
+                round(n_empty / total, 4) if total else 0.0
             ),
             "top": [{"shape": s, "records": n} for s, n in classes[:12]],
         },

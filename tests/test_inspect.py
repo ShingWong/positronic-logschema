@@ -291,3 +291,80 @@ def test_render_mentions_truncation_and_questions(tmp_path):
     assert "QUESTIONS FOR THE USER" in out
     assert "TRUNCATED" in out
     assert "Nothing above is a schema" in out
+
+
+# ------------------------------------------------- content selection
+
+def test_content_prefers_shared_vocabulary_over_volume():
+    """pvl `who` has 16 bytes on every record and zero shared terms; `desc`
+    has prose on 8% of records. Volume ranking picks the id field and the
+    class miner reports 0 shapes at 100% untemplatable -- which is what
+    shipped once, so this test names the corpus."""
+    from logschema.profile import FieldProfile, content_candidates
+    def fp(name, **kw):
+        d = {"fill": (1.0, 1), "reuse": 0.5, "toks": 3.0, "distinct": 100,
+             "kind": "str"}
+        d.update(kw)
+        p = FieldProfile(name=name)
+        p.non_null, p.present = 100, 100
+        p.mean_len = 10.0
+        p.vocab_reuse, p.mean_tokens = d["reuse"], d["toks"]
+        p.distinct = d["distinct"]
+        p.types["str"] = 100
+        return p
+    got = [f.name for f in content_candidates({
+        "who": fp("who", reuse=0.03, toks=1.0, distinct=95),
+        "desc": fp("desc", reuse=0.92, toks=2.8, distinct=45),
+    })]
+    assert got[0] == "desc"
+
+
+def test_content_demotes_enums_below_prose():
+    """pvl `loc`: 8 codes, reuse 1.00, zero descriptive power. Perfect reuse
+    must not beat actual prose."""
+    from logschema.profile import FieldProfile, content_candidates
+    def fp(name, **kw):
+        p = FieldProfile(name=name)
+        p.non_null, p.present = 100, 100
+        p.mean_len = 10.0
+        p.types["str"] = 100
+        for k, v in kw.items():
+            setattr(p, k, v)
+        return p
+    got = [f.name for f in content_candidates({
+        "loc": fp("loc", vocab_reuse=1.0, mean_tokens=1.0, distinct=8),
+        "desc": fp("desc", vocab_reuse=0.9, mean_tokens=3.0, distinct=45),
+    })]
+    assert got == ["desc", "loc"]
+
+
+def test_content_token_count_beats_clock_reuse():
+    """mx1 `stamp`: reuse 1.00 (digits repeat), 5 tokens. The message it
+    timestamps has reuse 0.98 and a dozen tokens. Reuse alone picks the
+    clock."""
+    from logschema.profile import FieldProfile, content_candidates
+    def fp(name, **kw):
+        p = FieldProfile(name=name)
+        p.non_null, p.present = 100, 100
+        p.mean_len = 10.0
+        p.types["str"] = 100
+        for k, v in kw.items():
+            setattr(p, k, v)
+        return p
+    got = [f.name for f in content_candidates({
+        "stamp": fp("stamp", vocab_reuse=0.998, mean_tokens=5.0,
+                     distinct=77),
+        "message": fp("message", vocab_reuse=0.980, mean_tokens=12.8,
+                       distinct=400),
+    })]
+    assert got[0] == "message"
+
+
+def test_vocab_reuse_separates_ids_from_prose():
+    from logschema.profile import _vocab_reuse
+    reuse_ids, _ = _vocab_reuse([f"{i:016x}" for i in range(300)])
+    reuse_prose, toks = _vocab_reuse(["morning meeting in hall",
+                                      "evening meeting in hall"] * 100)
+    assert reuse_ids < 0.1
+    assert reuse_prose > 0.5
+    assert toks == 4.0

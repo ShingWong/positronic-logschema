@@ -382,13 +382,37 @@ def _check_classes(schema: dict, records: list[dict], partial: bool,
         ))
         return out
 
-    _top, untemplatable, n_shapes, all_shapes = m.classes(text_field)
+    _top, untemplatable, n_shapes, all_shapes, n_empty = \
+        m.classes(text_field)
     seen = dict(all_shapes)
     matched, unmatched, claims = [], [], []
     for c in classes:
         tpl = c.get("template")
-        if not tpl:
+        if tpl is None:
             unmatched.append({"name": c.get("name"), "reason": "no template"})
+            continue
+        if not tpl.strip():
+            # The empty class: a BLANK template matches the records with no
+            # content. Blank means blank -- tested on the raw template, not
+            # the demasked one, because demasking drops single characters as
+            # placeholder-shaped and "F" is a real code in some corpora. That
+            # confusion shipped once: "F" demasked to nothing, claimed all
+            # 303,934 silent records a second time, and coverage came out at
+            # 191.7%. A corpus that is 92% silence cannot reach coverage
+            # without the empty class, and "routine, nothing to say" is a
+            # real event class with real retention (demote) -- not an excuse.
+            # It resolves iff silence exists: declaring it over a corpus with
+            # no empty records is the same phantom-class failure as any
+            # other template matching nothing.
+            if n_empty:
+                claims.append({"name": c.get("name"), "template": tpl,
+                               "specificity": 0, "shapes": [],
+                               "records": n_empty, "empty_class": True})
+            else:
+                unmatched.append({"name": c.get("name"), "template": tpl,
+                                  "literal": "",
+                                  "reason": "empty template but no record "
+                                            "has empty content"})
             continue
         ok, _n, absorbed = _match_shape(tpl, seen)
         if ok:
@@ -416,6 +440,16 @@ def _check_classes(schema: dict, records: list[dict], partial: bool,
             if sh not in owner:
                 owner[sh] = claim
     for claim in claims:
+        if claim.get("empty_class"):
+            # Silence is not a shape and cannot be contested: no template
+            # absorbs it, so the owner pass would zero its records and report
+            # it shadowed. It keeps what it claimed.
+            matched.append({"name": claim["name"],
+                            "records": claim["records"],
+                            "specificity": 0,
+                            "contested_with": [],
+                            "empty_class": True})
+            continue
         claim["records"] = sum(seen[sh] for sh in claim["shapes"]
                                if owner.get(sh) is claim)
         claim["contested_with"] = sorted(
@@ -546,7 +580,17 @@ def _match_shape(template: str, shapes: dict[str, int]) -> tuple[bool, int, list
     """
     want = _demask(template).split()
     if not want:
-        return False, 0, []
+        # A single literal character is a code, not a placeholder: pvl's "F"
+        # is a real visit code, and demasking drops single characters as
+        # placeholder-shaped. Matching is word-level, so "F" absorbs only
+        # shapes containing the standalone word F -- not every shape with an
+        # f in it. Anything longer that demasks to nothing (placeholders
+        # only) still matches nothing, honestly.
+        bare = template.strip().strip(":,;()[]{}.").strip()
+        if len(bare) == 1 and bare.upper() not in _PLACEHOLDER_WORDS:
+            want = [bare]
+        else:
+            return False, 0, []
     absorbed: list[str] = []
     for shape in shapes:
         have = shape.split()

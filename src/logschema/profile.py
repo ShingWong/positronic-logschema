@@ -60,6 +60,8 @@ class FieldProfile:
     mean_len: float = 0.0
     placeholder_rate: float = 0.0
     samples: list = field(default_factory=list)
+    vocab_reuse: float = 0.0
+    mean_tokens: float = 0.0
 
     @property
     def fill_rate(self) -> float:
@@ -143,6 +145,7 @@ def profile_fields(records: Iterable[dict]) -> dict[str, FieldProfile]:
         if fp.non_null:
             fp.mean_len /= fp.non_null
         fp.placeholder_rate = fp.placeholder_rate / fp.non_null if fp.non_null else 0.0
+        fp.vocab_reuse, fp.mean_tokens = _vocab_reuse(fp.samples)
         fp.distinct = len(set(fp.samples)) if fp.samples else 0
         # distinct is computed from capped samples above only as a fallback;
         # recompute exactly for small fields via the caller's cardinality pass.
@@ -694,15 +697,60 @@ def _value_shape(records: list[dict], name: str, sample: int = 500) -> str:
 # ---------------------------------------------------------------- content
 
 
+def _vocab_reuse(samples: list) -> tuple[float, float]:
+    """(reuse, mean tokens per value), over capped samples.
+
+    The property that makes text minable and readable is a SHARED vocabulary:
+    templates repeat words, prose repeats words, identifiers do not. A 16-hex
+    visitor id contributes 16 bytes per record and zero shared terms, so
+    ranking content by volume alone picks the id field -- measured on pvl,
+    where `who` outranked `desc` on bytes and the class miner reported 0
+    shapes at 100% untemplatable.
+
+    Reuse alone is not enough either: timestamps and pids share digits, so
+    `stamp` (reuse 1.00) outranks the message it timestamps. Token count
+    breaks that -- a timestamp is 3 tokens, a log line is a dozen -- because
+    content is text with perpetually more to say, not a fixed-format value.
+    The product ranks the message first on both corpora measured.
+
+    Tokenisation is latin-centric ([^a-z0-9]+); on CJK text every field scores
+    near zero together and the ranking degrades to a tie broken by name.
+    That is a known limitation, not a silent one: the reuse column ships in
+    inspect output, so a row of zeroes is visible.
+    """
+    counts: dict[str, int] = {}
+    total = 0
+    nvals = 0
+    for v in samples:
+        toks = [t for t in _WORD.split(str(v).lower()) if t]
+        nvals += 1
+        total += len(toks)
+        for t in toks:
+            counts[t] = counts.get(t, 0) + 1
+    if not total:
+        return 0.0, 0.0
+    reuse = sum(n for n in counts.values() if n > 1) / total
+    return reuse, total / max(nvals, 1)
+
+
 def content_candidates(profs: dict[str, FieldProfile]) -> list[FieldProfile]:
     """Fields that could carry the text a person would want to read.
 
-    Ranked by how much text they actually contribute, because that text is the
-    only thing the consuming engine reads. A field that is 92% empty is not a
-    content field no matter what it is called — measured here rather than
-    trusted, because an ingestion harness that flattens every record to a
-    single string is exactly the mistake that makes an engine look like it
-    cannot find an entity that is plainly present in the data.
+    Shared vocabulary first, enums last, volume to break ties. Three shapes
+    are not content, each for a measured reason:
+
+    * identifiers: volume with no shared terms (pvl `who`, reuse 0.03). Rank
+      by volume alone and the id field wins; the class miner then reports 0
+      shapes at 100% untemplatable.
+    * enums: a handful of distinct values (pvl `loc`, 8 codes, reuse 1.00).
+      Perfect reuse, zero descriptive power -- classes from an enum are the
+      enum itself, and the enum belongs in context or identity, not content.
+      The <=16 test runs on capped samples: a true enum shows all its values
+      in 400 draws, so a field showing more is definitely not one.
+    * sparse prose (pvl `desc`, 8% fill, reuse 0.92): the actual description
+      of the visit, and the only candidate worth mining.
+
+    The full ranking ships in inspect output for the author to argue with.
     """
     out = []
     for fp in profs.values():
@@ -711,7 +759,8 @@ def content_candidates(profs: dict[str, FieldProfile]) -> list[FieldProfile]:
         if fp.fill_rate < 0.05:
             continue
         out.append(fp)
-    out.sort(key=lambda f: (-f.mean_len * f.fill_rate, f.name))
+    out.sort(key=lambda f: (f.distinct <= 16,
+                            -f.vocab_reuse * f.mean_tokens, f.name))
     return out
 
 
@@ -723,10 +772,15 @@ def mine_classes(
     text_field: str | None,
     max_classes: int = 60,
     max_len: int = 120,
-) -> tuple[list[tuple[str, int]], int, int, Counter]:
+) -> tuple[list[tuple[str, int]], int, int, Counter, int]:
     """Return (top shapes, untemplatable count, distinct total, ALL shapes).
 
-    The fourth element is the complete Counter. It used to be the third, and
+    The fifth element counts the records the loop never saw: content None or
+    empty. Skipping them silently made a corpus that is 92% silence report
+    0.5% untemplatable, which is how pvl nearly got a schema covering 8% of
+    its records while claiming 90%. Silence is the normal class there -- a
+    routine visit with nothing to say -- and it needs a count before anyone
+    can declare it. It used to be the third, and
     that was a trap: reporting `len(shapes)` after truncating to `max_classes`
     told a 1.5M-line mail log it had "5,233 distinct shapes" while holding 60.
     Every downstream use of the number — the printed table, the residue share,
@@ -750,13 +804,15 @@ def mine_classes(
     before drawing conclusions from it.
     """
     if not text_field:
-        return [], 0, 0, Counter()
+        return [], 0, 0, Counter(), 0
     shapes: Counter = Counter()
     total = 0
     untemplatable = 0
+    empty = 0
     for r in records:
         v = r.get(text_field)
         if v in (None, ""):
+            empty += 1
             continue
         total += 1
         s = skeleton(str(v), max_len)
@@ -764,7 +820,8 @@ def mine_classes(
             untemplatable += 1
         else:
             shapes[s] += 1
-    return shapes.most_common(max_classes), untemplatable, len(shapes), shapes
+    return (shapes.most_common(max_classes), untemplatable, len(shapes),
+            shapes, empty)
 
 
 # Order matters. Bracketed forms go before bare numbers so that `[I:1.2.3.4]:25`
@@ -787,6 +844,7 @@ _SKEL = (
 
 # Closed-class words. Used to tell a fixed log phrase from prose. Kept short on
 # purpose: over-including is how a real template gets thrown away.
+_WORD = re.compile(r"[^a-z0-9]+")
 _FUNCTION_WORDS = frozenset({
     "the", "a", "an", "and", "or", "but", "of", "in", "on", "at", "to",
     "for", "with", "by", "from", "is", "are", "was", "were", "be", "been",
