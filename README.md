@@ -123,8 +123,8 @@ server. `inspect` measured it, a model drafted a schema from the report,
 ```
 VALIDATED   7/7 predicates passed
   identity_key    ident+pid measures as session: 47 events per key, median span 2m
-  classes_resolve 77/77 declared classes matched an observed shape
-  every_record_classed  90.2% of templatable records (threshold 90%)
+  classes_resolve 73/73 declared classes matched an observed shape
+  every_record_classed  97.7% of templatable records (threshold 90%)
 ```
 
 `conformance run` then reported 6/6 negative fixtures rejected for the stated
@@ -132,12 +132,20 @@ reason, and two `validate` runs produced byte-identical output. The worked
 schema and the measurements behind it are in
 [`examples/postfix-maillog/`](examples/postfix-maillog/).
 
-Two findings from that run are worth more than the schema. A plausible-looking
+Three findings from that run are worth more than the schema. A plausible-looking
 field present on every record can still be worthless as an identity key —
 `host` held exactly one distinct value across 300,000 lines — which is why
-`identity_key` is a predicate and not a comment. And a coverage number that
-reaches 114% is not a rounding artefact: two classes were claiming the same
-records, because containment lets a short template absorb a longer sibling.
+`identity_key` is a predicate and not a comment. A coverage number reaching 114%
+is not a rounding artefact: two classes were claiming the same records, because
+containment lets a short template absorb a longer sibling. And a schema
+validated against a *transformed* copy of a log is validated against nothing —
+the first version of this example scored 3 of 7 against the raw file, because
+its field names came from a script that no longer exists.
+
+The example also leans on broad fallback classes to reach 97.7% coverage with 73
+classes where the measurement said 206 were needed. Its README says so plainly,
+because the trade is not free: cheap coverage against a thin long tail, or
+expensive coverage against precise per-event retention.
 
 ## License
 

@@ -1,477 +1,451 @@
 software: postfix
-identity_key: [svc, pid]
+identity_key: [ident, pid]
 time_field: stamp
 
 record_layers:
   envelope:
-    - {path: file, role: context, type: str, meaning: "Log file the collector rotated this line into."}
-    - {path: stamp, role: context, type: str, meaning: "ISO8601 stamp written by the collector; the measured event clock."}
+    - {path: stamp, role: context, type: timestamp, meaning: "syslog write time; the measured clock. BSD syslog omits the year, so this is a reconstruction from a named source."}
+    - {path: host, role: context, type: string, meaning: "the syslog host that wrote the line. Measured at one distinct value across 300,000 lines, so it is recorded but never used as a key."}
+    - {path: ident, role: identity, type: string, meaning: "the syslog program tag, e.g. a postfix service or a content-filter helper. Kept verbatim: deriving a program name from it by last path segment is a false merge."}
+    - {path: pid, role: identity, type: string, meaning: "the process id. Measured with ident as a session key at 47 events per key, median span 2 minutes."}
   payload:
-    - {path: ident, role: identity, type: str, meaning: "Syslog tag carried over the wire."}
-    - {path: pid, role: identity, type: str, meaning: "Syslog PID of the process that emitted the line."}
-    - {path: svc, role: identity, type: str, meaning: "Daemon name split out of the syslog tag."}
-    - {path: q, role: context, type: structured, meaning: "Queue-ID list attached by the mail pipeline."}
-    - {path: tok, role: content, type: str, meaning: "Masked free-text message the daemon wrote."}
+    - {path: message, role: content, type: string, meaning: "the free-text line written by the program, and the only place the postfix queue id appears."}
 
 classes:
-  - name: smtpd_disconnect_from
-    template: "disconnect from"
-    meaning: smtpd tearing down the SMTP conversation with a remote client.
-    normal: true
-    retention: demote
-
-  - name: smtpd_connect_from
+  - name: connect_from
     template: "connect from"
-    meaning: smtpd accepting a new inbound SMTP connection.
+    meaning: "an inbound SMTP session was accepted from a remote client."
     normal: true
     retention: demote
 
-  - name: sasl_login_auth_failed
-    template: "warning SASL LOGIN authentication failed"
-    meaning: A SASL LOGIN authentication attempt was rejected.
+  - name: disconnect_from
+    template: "disconnect from"
+    meaning: "an inbound SMTP session was closed."
+    normal: true
+    retention: demote
+
+  - name: connect_to_relay
+    template: "connect to"
+    meaning: "an outbound connection to a remote mail host was opened."
+    normal: true
+    retention: demote
+
+  - name: sasl_login_failed
+    template: "SASL LOGIN authentication failed"
+    meaning: "a client failed SASL LOGIN authentication. The largest warning class here and the bulk of bot traffic."
     normal: false
     retention: keep-extended
 
-  - name: lost_connection_after_auth
-    template: "lost connection after AUTH from"
-    meaning: The client dropped the connection right after the AUTH step.
+  - name: sasl_plain_failed
+    template: "SASL PLAIN authentication failed"
+    meaning: "a client failed SASL PLAIN authentication."
     normal: false
     retention: keep-extended
 
-  - name: qmgr_from_size_nrcpt_active
-    template: "Q from size nrcpt queue active"
-    meaning: The queue manager records sender, size, recipient count and active queue.
+  - name: lost_connection_after
+    template: "lost connection after"
+    meaning: "the connection was dropped immediately after a named protocol step."
+    normal: false
+    retention: keep-extended
+
+  - name: timeout_after
+    template: "timeout after"
+    meaning: "the client stalled at a protocol step until the session timed out."
+    normal: false
+    retention: keep-extended
+
+  - name: command_time_limit
+    template: "COMMAND TIME LIMIT"
+    meaning: "a client hit the command time limit without completing a command."
+    normal: false
+    retention: demote
+
+  - name: tls_accept_error
+    template: "SSL accept error from"
+    meaning: "the TLS handshake with a client failed and the connection was lost."
+    normal: false
+    retention: keep-extended
+
+  - name: hostname_does_not_resolve
+    template: "warning hostname"
+    meaning: "a reverse-DNS name for a client address does not resolve. Normal on the internet, not an incident."
+    normal: false
+    retention: demote
+
+  - name: dnsbl_rank_for
+    template: "DNSBL rank for"
+    meaning: "a client address earned a block-list rank score, which decides later filtering."
+    normal: false
+    retention: keep-extended
+
+  - name: dnsbl_lookup_timeout
+    template: "warning dnsblog reply timeout"
+    meaning: "a DNS block-list lookup timed out, so the client could not be scored. Deferred work, not a delivery failure."
+    normal: false
+    retention: keep-extended
+
+  - name: qmgr_from_size_nrcpt
+    template: "from size nrcpt queue active"
+    meaning: "the queue manager recorded sender, size, recipient count and queue for an active entry."
     normal: true
     retention: keep
 
   - name: qmgr_removed
-    template: "Q removed"
-    meaning: The queue manager removed a message from a queue.
+    template: "removed"
+    meaning: "the queue manager removed a queue entry that finished its life."
     normal: true
     retention: keep
 
-  - name: dnsbl_rank_for
-    template: "DNSBL rank for"
-    meaning: A DNSBL lookup reports the block-list ranking of a client address.
+  - name: qmgr_message_id
+    template: "message id"
+    meaning: "the queue manager logged a message identifier."
     normal: true
     retention: keep
 
-  - name: dnsbl_timeout_ix_manitu
-    template: "warning dnsblog reply timeout s for ix dnsbl manitu net"
-    meaning: The ix.dnsbl.manitu.net block-list lookup timed out.
-    normal: false
-    retention: keep-extended
+  - name: cleanup_message_id
+    template: "Content Type"
+    meaning: "a message part's content type was recorded while the scanner walked the MIME tree."
+    normal: true
+    retention: demote
 
-  - name: dnsbl_timeout_inps_de
-    template: "warning dnsblog reply timeout s for dnsbl inps de"
-    meaning: The dnsbl.inps.de block-list lookup timed out.
-    normal: false
-    retention: keep-extended
+  - name: mime_part_text_plain
+    template: "Content Type text plain"
+    meaning: "a message part is plain text."
+    normal: true
+    retention: demote
 
-  - name: lost_connection_after_ehlo
-    template: "lost connection after EHLO from"
-    meaning: The client disconnected immediately after EHLO without sending MAIL.
-    normal: false
-    retention: keep-extended
+  - name: mime_part_text_html
+    template: "Content Type text html"
+    meaning: "a message part is HTML."
+    normal: true
+    retention: demote
 
-  - name: lost_connection_after_connect
-    template: "lost connection after from"
-    meaning: The client vanished right after connecting, before issuing any command.
-    normal: false
-    retention: keep-extended
+  - name: mime_part_multipart_alternative
+    template: "Content Type multipart alternative"
+    meaning: "a message part is a multipart/alternative container."
+    normal: true
+    retention: demote
 
-  - name: banned_table_collect
-    template: "collect banned table tables IP RE ARRAY x ffc"
-    meaning: Policy table collection reports the banned IP regular-expression arrays it loaded.
+  - name: delivery_to_relay
+    template: "to relay"
+    meaning: "the delivery agent is reporting the outcome for one recipient via one relay."
     normal: true
     retention: keep
 
-  - name: antivirus_body_hash
-    template: "body hash"
-    meaning: The filter reports the body hash it computed for the message.
-    normal: true
-    retention: demote
-
-  - name: clamav_start_code
-    template: "run av Using clamd code n"
-    meaning: amavisdav starts ClamAV and records its exit code.
+  - name: delivery_status_sent
+    template: "dsn status sent"
+    meaning: "a delivery attempt ended with a successful status code."
     normal: true
     retention: keep
 
-  - name: clamav_connect_socket
-    template: "clamd to socket"
-    meaning: ClamAV connects to the clamd socket.
+  - name: local_delivery_via_dovecot
+    template: "to relay dovecot delay delays dsn status sent delivered via dovecot service"
+    meaning: "a message was delivered to a local mailbox through the mail store, with the delay breakdown."
     normal: true
-    retention: demote
+    retention: keep
 
-  - name: clamav_connect_socket_n
-    template: "clamd n to socket"
-    meaning: ClamAV connects to the clamd socket, with a numeric field the masker kept.
-    normal: true
-    retention: demote
-
-  - name: smtpd_read_loop_eof
-    template: "rw loop read got eof"
-    meaning: The smtpd read loop ended at end-of-file on the client stream.
-    normal: true
-    retention: demote
-
-  - name: smtpd_status_counters
-    template: "status counters"
-    meaning: smtpd periodically reports its status counters.
+  - name: delivery_stage_timing
+    template: "SMTP response unlink files rundown"
+    meaning: "the scanner timed the response, cleanup and rundown stages of a delivery."
     normal: true
     retention: drop
 
-  - name: clamav_clean_result
-    template: "run av clamd CLEAN"
-    meaning: The antivirus pass returned CLEAN.
+  - name: delivery_pre_response_timing
+    template: "SMTP pre response"
+    meaning: "the scanner timed the pre-response stage of a delivery."
+    normal: true
+    retention: drop
+
+  - name: delivery_method_selected
+    template: "delivery method is"
+    meaning: "the delivery agent chose a delivery method for the listed recipients."
     normal: true
     retention: demote
 
-  - name: clamav_result_clean
-    template: "run av clamd result clean"
-    meaning: The antivirus pass reports the message as clean.
+  - name: smtp_greeting
+    template: "smtp greeting"
+    meaning: "a remote relay returned its SMTP greeting, with round-trip time."
     normal: true
     retention: demote
 
-  - name: smtp_resp_mail_pipelined
-    template: "smtp resp to MAIL pip Ok"
-    meaning: The pipelined response to MAIL was accepted with Ok.
+  - name: smtp_cmd
+    template: "smtp cmd"
+    meaning: "one SMTP command was sent to a remote relay."
     normal: true
     retention: demote
 
-  - name: smtp_resp_rcpt_pipelined
-    template: "smtp resp to RCPT pip Ok"
-    meaning: The pipelined response to RCPT was accepted with Ok.
+  - name: smtp_cmd_mail_from
+    template: "smtp cmd MAIL FROM"
+    meaning: "the envelope sender command was sent, with its body transfer attribute."
     normal: true
     retention: demote
-
-  - name: delivery_method_recips
-    template: "delivery method is recips"
-    meaning: The delivery agent reports the delivery method it will use.
-    normal: true
-    retention: demote
-
-  - name: auth_not_needed
-    template: "AUTH not needed user MTA offers"
-    meaning: The client announced AUTH but offered no mechanism the MTA accepts.
-    normal: true
-    retention: keep
-
-  - name: smtp_cmd_data
-    template: "smtp cmd DATA"
-    meaning: The client issued the DATA command.
-    normal: true
-    retention: demote
-
-  - name: spamassassin_parse_call
-    template: "calling SA parse SA vers data as STRING REF recips ind user amavis"
-    meaning: amavisdav calls SpamAssassin to parse and score the message.
-    normal: true
-    retention: keep
 
   - name: smtp_cmd_rcpt_to
     template: "smtp cmd RCPT TO"
-    meaning: The client issued RCPT TO.
+    meaning: "a recipient command was sent."
     normal: true
     retention: demote
 
-  - name: smtp_connection_cache_state
-    template: "smtp connection cache dt state"
-    meaning: smtpd records a state change in its connection cache.
-    normal: true
-    retention: demote
-
-  - name: qmgr_delivered_dovecot
-    template: "Q to relay dovecot delay dsn status sent delivered via dovecot service"
-    meaning: The queue manager logs a successful LMTP delivery to dovecot.
+  - name: smtp_cmd_rcpt_orcpt
+    template: "smtp cmd RCPT TO ORCPT"
+    meaning: "a recipient command was sent carrying DSN return options."
     normal: true
     retention: keep
 
-  - name: smtp_cmd_mail_from_body_8bit
-    template: "smtp cmd MAIL FROM BODY BIT"
-    meaning: The client issued MAIL FROM with the 8BITMIME body parameter.
+  - name: smtp_cmd_ehlo
+    template: "smtp cmd EHLO"
+    meaning: "the EHLO command was sent."
     normal: true
     retention: demote
 
-  - name: smtp_resp_ehlo_extensions
-    template: "smtp resp to EHLO nSIZE nDSN"
-    meaning: smtpd advertises its SIZE and DSN SMTP extensions.
-    normal: true
-    retention: demote
-
-  - name: smtpd_new_socket_timeout
-    template: "new socket using IP IP to timeout"
-    meaning: smtpd creates a new socket with an idle timeout.
-    normal: true
-    retention: drop
-
-  - name: smtp_session_new_session
-    template: "smtp session setting up a new session"
-    meaning: smtpd opens its session bookkeeping for a new connection.
-    normal: true
-    retention: demote
-
-  - name: close_disconnecting
-    template: "close disconnecting"
-    meaning: The connection is closed as the session disconnects.
-    normal: true
-    retention: demote
-
-  - name: master_process_request
-    template: "process request fileno sock STDIN"
-    meaning: The postfix master accepts a service request on a socket.
+  - name: smtp_cmd_data
+    template: "smtp cmd DATA"
+    meaning: "the DATA step was sent."
     normal: true
     retention: demote
 
   - name: smtp_cmd_quit
     template: "smtp cmd QUIT"
-    meaning: The client sent QUIT to end the session.
+    meaning: "QUIT was sent to end the relay session."
+    normal: true
+    retention: demote
+
+  - name: smtp_resp
+    template: "smtp resp"
+    meaning: "a remote relay answered one SMTP command."
+    normal: true
+    retention: demote
+
+  - name: smtp_resp_mail
+    template: "smtp resp to MAIL"
+    meaning: "the envelope sender step was accepted."
+    normal: true
+    retention: demote
+
+  - name: smtp_resp_rcpt
+    template: "smtp resp to RCPT"
+    meaning: "a recipient step was accepted."
+    normal: true
+    retention: demote
+
+  - name: smtp_resp_ehlo
+    template: "smtp resp to EHLO"
+    meaning: "EHLO was answered with the relay's capability list."
+    normal: true
+    retention: demote
+
+  - name: auth_not_needed
+    template: "AUTH not needed"
+    meaning: "the relay did not require authentication for this session."
     normal: true
     retention: drop
 
-  - name: master_load_total
-    template: "load total idle s busy s"
-    meaning: The master process reports total, idle and busy seconds.
+  - name: smtp_session_setup
+    template: "smtp session setting up"
+    meaning: "a new outbound SMTP session was set up."
+    normal: true
+    retention: demote
+
+  - name: smtp_session_reuse
+    template: "smtp session"
+    meaning: "a line about outbound SMTP session state, including reuse."
+    normal: true
+    retention: demote
+
+  - name: smtp_connection_cache
+    template: "smtp connection cache"
+    meaning: "the age and state of the cached relay connection was logged."
     normal: true
     retention: drop
 
-  - name: mime_text_html_qp
-    template: "p Type text html QP size SHA digest"
-    meaning: A quoted-printable text/html MIME part with size and digest.
+  - name: amavis_out_smtp_session_close
+    template: "Amavis Out SMTP Session close"
+    meaning: "the content filter closed its outbound SMTP session."
     normal: true
     retention: demote
 
-  - name: mime_multipart_alternative
-    template: "p Type multipart alternative"
-    meaning: A MIME part declaring multipart/alternative.
-    normal: true
-    retention: demote
-
-  - name: amavis_notify_quarantine_ccat
-    template: "do notify and quar ccat Clean Clean ccat block qar mth"
-    meaning: amavis reports a CLEAN category and its quarantine block.
-    normal: true
-    retention: keep
-
-  - name: mime_text_plain_8bit
-    template: "p Type text plain bit size SHA digest"
-    meaning: An 8bit-encoded text/plain MIME part with size and digest.
-    normal: true
-    retention: demote
-
-  - name: trace_esmtp
+  - name: protocol_trace
     template: "trace ESMTP"
-    meaning: A verbose ESMTP protocol trace line.
+    meaning: "the protocol hop chain of a delivery was traced."
+    normal: true
+    retention: demote
+
+  - name: spam_bounced
+    template: "bounce unverifiable"
+    meaning: "the spam filter bounced the message as unverifiable. One of the few outcomes a customer will notice."
+    normal: false
+    retention: keep-extended
+
+  - name: spam_policy_pass
+    template: "PASS"
+    meaning: "the client address passed a spam policy check."
+    normal: true
+    retention: demote
+
+  - name: spam_whitelisted
+    template: "WHITELISTED"
+    meaning: "the client address was exempt from filtering by local policy."
+    normal: true
+    retention: keep-extended
+
+  - name: spamassassin_parse
+    template: "calling SA parse SA vers data"
+    meaning: "the spam scoring plugin was invoked on the message."
     normal: true
     retention: drop
 
-  - name: timeout_after_auth
-    template: "timeout after AUTH from"
-    meaning: The client stalled after AUTH and hit the timeout.
-    normal: false
-    retention: keep-extended
-
-  - name: dsn_sender_credible_orig
-    template: "DSN sender is credible orig SA"
-    meaning: amavis reports the original envelope sender as a credible DSN sender.
+  - name: notify_and_quarantine
+    template: "do notify and quar"
+    meaning: "notify and quarantine category counters were logged."
     normal: true
-    retention: keep
+    retention: drop
 
-  - name: smtp_response_rundown
-    template: "SMTP response unlink files rundown"
-    meaning: The amavis smtp-response cache cleans up unlinked files.
+  - name: banned_table_collect
+    template: "collect banned table"
+    meaning: "the banned pattern table was resolved for a message."
     normal: true
-    retention: demote
-
-  - name: spamassassin_pass_old
-    template: "PASS OLD"
-    meaning: SpamAssassin marks the message with an OLD classification header.
-    normal: true
-    retention: keep
-
-  - name: amavis_notify_quarantine
-    template: "do notify and quar Clean ccat block qar mth"
-    meaning: amavis reports a CLEAN notification and its quarantine block.
-    normal: true
-    retention: keep
-
-  - name: sasl_login_failed_net
-    template: "warning net SASL LOGIN authentication failed"
-    meaning: A SASL LOGIN failure from a client host ending in .net.
-    normal: false
-    retention: keep-extended
-
-  - name: sasl_login_failed_com
-    template: "warning com SASL LOGIN authentication failed"
-    meaning: A SASL LOGIN failure from a client host ending in .com.
-    normal: false
-    retention: keep-extended
-
-  - name: lost_auth_net
-    template: "lost connection after AUTH from net"
-    meaning: Connection lost after AUTH from a client host ending in .net.
-    normal: false
-    retention: keep-extended
-
-  - name: lost_auth_com
-    template: "lost connection after AUTH from com"
-    meaning: Connection lost after AUTH from a client host ending in .com.
-    normal: false
-    retention: keep-extended
-
-  - name: mime_text_plain_ascii
-    template: "p path P p L M text plain T asc"
-    meaning: A text/plain MIME part with a numeric ASCII transfer encoding.
-    normal: true
-    retention: demote
-
-  - name: mime_text_plain_qp
-    template: "p Type text plain QP size SHA digest"
-    meaning: A quoted-printable text/plain MIME part with size and digest.
-    normal: true
-    retention: demote
+    retention: drop
 
   - name: policy_bank_loaded
     template: "loaded policy bank"
-    meaning: The policy service loads its bank of rules into memory.
+    meaning: "a policy bank of local sender rules was loaded at startup."
+    normal: true
+    retention: drop
+
+  - name: clamav_scan
+    template: "run av ClamAV clamd"
+    meaning: "the antivirus daemon was asked to scan the message."
+    normal: true
+    retention: demote
+
+  - name: clamav_result
+    template: "run av clamd result"
+    meaning: "the antivirus pass reported its verdict."
+    normal: true
+    retention: demote
+
+  - name: clamav_socket_connect
+    template: "ClamAV clamd Connecting to socket"
+    meaning: "the scanner connected to the antivirus daemon socket."
+    normal: true
+    retention: demote
+
+  - name: body_hash
+    template: "body hash"
+    meaning: "the checksum of the inspected message body was recorded."
+    normal: true
+    retention: demote
+
+  - name: new_socket
+    template: "new socket"
+    meaning: "a socket was opened for a delivery attempt."
+    normal: true
+    retention: demote
+
+  - name: socket_io_error
+    template: "new socket using IO Socket IP"
+    meaning: "the perl socket to the remote relay reported an error."
+    normal: false
+    retention: demote
+
+  - name: process_request
+    template: "process request"
+    meaning: "a new scan request was accepted on a file descriptor."
+    normal: true
+    retention: demote
+
+  - name: read_loop
+    template: "rw loop read"
+    meaning: "the scanner read loop was working on the message body."
+    normal: true
+    retention: demote
+
+  - name: disconnect_notice
+    template: "DISCONNECT"
+    meaning: "a bare disconnect notice for a session carrying no further detail."
+    normal: true
+    retention: demote
+
+  - name: close_disconnecting
+    template: "close disconnecting"
+    meaning: "the session is closing and disconnecting."
+    normal: true
+    retention: demote
+
+  - name: master_load_total
+    template: "load total"
+    meaning: "the master process reported total, idle and busy seconds."
+    normal: true
+    retention: drop
+
+  - name: status_counters
+    template: "status counters"
+    meaning: "the message status counters were listed."
+    normal: true
+    retention: drop
+
+  - name: dsn_sender_credible
+    template: "DSN sender is credible"
+    meaning: "bounce reporting judged the envelope sender credible, on DKIM or original-header grounds."
+    normal: true
+    retention: keep-extended
+
+  - name: dkim_candidate_originators
+    template: "dkim candidate originators"
+    meaning: "candidate DKIM originators were collected from the message headers."
+    normal: true
+    retention: demote
+
+  - name: client_recorded
+    template: "client"
+    meaning: "a queue entry recorded which client submitted the message."
     normal: true
     retention: keep
 
-  - name: close_keeping_connection
-    template: "close keeping connection"
-    meaning: smtpd closes the session but keeps the cached connection.
+  - name: stats_cache_size
+    template: "statistics max cache size"
+    meaning: "the cache high-water mark was reported."
     normal: true
-    retention: keep
+    retention: drop
 
-  - name: policy_cache_slow
-    template: "warning psc cache update btree update average delay is ms"
-    meaning: The policy cache update is slow enough to be warned about.
+  - name: stats_max
+    template: "statistics max"
+    meaning: "a maximum value for one of the filter's internal counters was reported."
+    normal: true
+    retention: drop
+
+  - name: stats_line
+    template: "statistics"
+    meaning: "a line from the filter's statistics reporting."
+    normal: true
+    retention: drop
+
+  - name: database_connect_starting
+    template: "Connecting to SQL database"
+    meaning: "the filter started connecting to its database."
+    normal: true
+    retention: drop
+
+  - name: database_connect_succeeded
+    template: "connect to sql DBI Pg database"
+    meaning: "the filter opened its database connection successfully."
+    normal: true
+    retention: drop
+
+  - name: selfcheck_database
+    template: "SelfCheck Database status"
+    meaning: "a periodic self-check reported on database health."
+    normal: true
+    retention: drop
+
+  - name: error_generic
+    template: "error"
+    meaning: "a line reporting an error, of a shape not narrowed further here."
     normal: false
     retention: keep-extended
 
-  - name: smtp_session_reuse
-    template: "smtp session reuse smtp transactions so far"
-    meaning: smtpd reuses a cached session and reports the transaction count.
-    normal: true
-    retention: demote
-
-  - name: spamassassin_pass_new
-    template: "PASS NEW"
-    meaning: SpamAssassin marks the message with a NEW classification header.
-    normal: true
-    retention: keep
-
-  - name: mime_text_plain_base64
-    template: "p Type text plain base size SHA digest"
-    meaning: A base64-encoded text/plain MIME part with size and digest.
-    normal: true
-    retention: demote
-
-  - name: dsn_sender_credible_dkim
-    template: "DSN sender is credible dkim SA"
-    meaning: amavis reports the DSN sender as credible because it is DKIM signed.
-    normal: true
-    retention: keep
-
-  - name: smtp_session_still_valid
-    template: "smtp session most likely still valid short idle s"
-    meaning: smtpd judges a short-idle cached session still usable.
-    normal: true
-    retention: demote
-
-  - name: qmgr_message_id
-    template: "Q message id"
-    meaning: The queue manager reports the message ID.
-    normal: true
-    retention: keep
-
-  - name: qmgr_size_nrcpt
-    template: "Q size nrcpt queue active"
-    meaning: The queue manager reports message size and active queue.
-    normal: true
-    retention: keep
-
-  - name: qmgr_delivery_saved
-    template: "Q to net delay dsn status sent Ok message saved"
-    meaning: The queue manager records a successful delivery with a saved message.
-    normal: true
-    retention: keep
-
-  - name: mime_text_html_ascii
-    template: "p path P p L M text html T asc"
-    meaning: A text/html MIME part with a numeric ASCII transfer encoding.
-    normal: true
-    retention: demote
-
-  - name: dkim_candidate_originator
-    template: "dkim candidate originators From"
-    meaning: amavis lists the From header as a DKIM candidate originator.
-    normal: true
-    retention: keep
-
-  - name: smtp_pre_response_rundown
-    template: "SMTP pre response SMTP response unlink files rundown"
-    meaning: Cleanup of pre-response smtp-response files.
-    normal: true
-    retention: demote
-
-  - name: time_limit_after_ehlo
-    template: "TIME LIMIT from after EHLO"
-    meaning: The client hit the time limit after sending EHLO.
+  - name: warning_generic
+    template: "warning"
+    meaning: "a warning line of a shape not narrowed further here."
     normal: false
     retention: keep-extended
-
-  - name: ssl_accept_error
-    template: "SSL accept error from lost connection"
-    meaning: The TLS accept failed and the connection was dropped.
-    normal: false
-    retention: keep-extended
-
-  - name: time_limit_after_helo
-    template: "TIME LIMIT from after HELO"
-    meaning: The client hit the time limit after sending HELO.
-    normal: false
-    retention: keep-extended
-
-  - name: mime_text_html_8bit
-    template: "p Type text html bit size SHA digest"
-    meaning: An 8bit-encoded text/html MIME part with size and digest.
-    normal: true
-    retention: demote
-
-  - name: sql_snmp_rundown
-    template: "sql update update snmp SMTP pre response SMTP response unlink files rundown"
-    meaning: Database cleanup of old SNMP smtp-response rows.
-    normal: true
-    retention: demote
-
-  - name: timeout_after_connect
-    template: "timeout after from"
-    meaning: The client connected and then timed out before sending a command.
-    normal: false
-    retention: keep-extended
-
-  - name: sasl_plain_auth_failed
-    template: "warning SASL PLAIN authentication failed"
-    meaning: A SASL PLAIN authentication attempt was rejected.
-    normal: false
-    retention: keep-extended
-
-  - name: qmgr_geopod
-    template: "Q geopod ismtpd"
-    meaning: A queue line naming the geopod policy recipient.
-    normal: true
-    retention: keep
-
-  - name: mime_multipart_mixed
-    template: "p Type multipart mixed"
-    meaning: A MIME part declaring multipart/mixed.
-    normal: true
-    retention: demote
-
-  - name: smtp_statistics_cache
-    template: "statistics max cache size at Sep IP"
-    meaning: smtpd statistics report the maximum cache size.
-    normal: true
-    retention: demote
