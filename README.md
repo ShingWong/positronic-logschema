@@ -7,9 +7,15 @@ class is worth keeping.
 
 It is a standalone tool. It does not import `memeng` or `positronic_ai`, and
 it does not require either. Positronic is one *consumer* of the output
-(`positronic ingest --schema schema.yaml`), not this tool's identity — which
-is why the CLI describes itself by what it does rather than by which brain it
-might feed.
+(`positronic ingest-log --schema schema.yaml --file maillog --brain mx1`),
+not this tool's identity — which is why the CLI describes itself by what it
+does rather than by which brain it might feed.
+
+Programmatic consumers import exactly one module: `logschema.classify`.
+`build_classifier(schema, records)` returns `(classify, report)` — a
+record-to-class function plus its coverage disclosure (classified vs
+unclassified counts). This is the mapping every ingester shares; copying it
+from validator internals is how three copies drift apart.
 
 ## Install
 
